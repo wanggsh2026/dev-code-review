@@ -40,3 +40,23 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Build local image for browser download
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          load: true
+          tags: dev-code-review:latest
+
+      - name: Export image archive
+        run: |
+          docker save dev-code-review:latest | gzip > dev-code-review-image.tar.gz
+          ls -lh dev-code-review-image.tar.gz
+
+      - name: Upload image archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-code-review-image
+          path: dev-code-review-image.tar.gz
+          retention-days: 7
