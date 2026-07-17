@@ -1,6 +1,7 @@
 FROM node:22-bookworm-slim
 
 ARG OCR_PACKAGE_VERSION=latest
+ARG OPENCODE_PACKAGE_VERSION=latest
 ENV APP_ROOT=/app \
     REVIEW_MODE=shell \
     REVIEW_OUTPUT_DIR=review-output \
@@ -19,13 +20,16 @@ RUN apt-get update \
 
 RUN npm install -g \
       "@alibaba-group/open-code-review@${OCR_PACKAGE_VERSION}" \
+      "opencode-ai@${OPENCODE_PACKAGE_VERSION}" \
     && npm cache clean --force
 
 WORKDIR /app
 
+COPY .opencode/ .opencode/
 COPY docker/ docker/
 COPY gitlab-merge-review/ gitlab-merge-review/
 COPY scripts/ scripts/
+COPY opencode.json opencode.json
 COPY README.md README.md
 
 RUN chmod +x docker/entrypoint.sh \

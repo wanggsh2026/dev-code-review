@@ -2,8 +2,9 @@
 
 `dev-code-review` is a GitLab/OpenCodeReview helper project for reviewing merge requests before they are merged into the `dev` branch.
 
-It follows the same broad shape as the sibling `cicd` project, but the runtime path is Docker + shell scripts:
+It follows the same broad shape as the sibling `cicd` project:
 
+- OpenCode agent assets under `.opencode/`
 - GitLab merge request gate under `gitlab-merge-review/`
 - deterministic Python scripts under `scripts/`
 - Docker entrypoint under `docker/`
