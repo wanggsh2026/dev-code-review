@@ -1,0 +1,16 @@
+{
+  "project_id": "local",
+  "project_path": "example/project",
+  "project_url": "",
+  "pipeline_id": "local",
+  "pipeline_url": "",
+  "pipeline_source": "merge_request_event",
+  "target_branch": "dev",
+  "source_branch": "feature/example",
+  "base_commit": "0000000",
+  "to_commit": "1111111",
+  "gitlab_project_id": "",
+  "gitlab_mr_iid": "",
+  "gitlab_project_url": "",
+  "trigger_user": "local"
+}

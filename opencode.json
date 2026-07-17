@@ -1,0 +1,99 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "{env:OPENCODE_MODEL}",
+  "small_model": "{env:OPENCODE_SMALL_MODEL}",
+  "default_agent": "dev-code-review",
+  "autoupdate": false,
+  "share": "disabled",
+  "snapshot": false,
+  "instructions": [
+    ".opencode/skills/dev-code-review/SKILL.md",
+    ".opencode/README.md"
+  ],
+  "watcher": {
+    "ignore": [
+      ".git/**",
+      "review-output/**",
+      "output/**",
+      "node_modules/**",
+      "dist/**",
+      "target/**",
+      "build/**",
+      ".gradle/**",
+      "**/__pycache__/**"
+    ]
+  },
+  "permission": {
+    "*": "deny",
+    "read": "allow",
+    "grep": "allow",
+    "glob": "allow",
+    "skill": "allow",
+    "edit": "deny",
+    "webfetch": "deny",
+    "websearch": "deny",
+    "bash": {
+      "*": "deny",
+      "bash gitlab-merge-review/scripts/run-gitlab-merge-review.sh": "allow",
+      "bash ./gitlab-merge-review/scripts/run-gitlab-merge-review.sh": "allow",
+      "bash docker/entrypoint.sh": "allow",
+      "bash ./docker/entrypoint.sh": "allow",
+      "git rev-parse *": "allow",
+      "git merge-base *": "allow",
+      "git diff *": "allow",
+      "git show *": "allow",
+      "git status *": "allow",
+      "git fetch *": "allow",
+      "python3 scripts/run_platform_offline_review.py *": "allow",
+      "python3 scripts/gitlab_context.py *": "allow",
+      "python3 scripts/generate_review_docx.py *": "allow",
+      "python3 gitlab-merge-review/scripts/evaluate_review.py *": "allow",
+      "ocr review *": "allow"
+    }
+  },
+  "agent": {
+    "dev-code-review": {
+      "description": "Review GitLab merge requests targeting dev and block merge when severe findings exist.",
+      "mode": "primary",
+      "temperature": 0.1,
+      "steps": 20,
+      "prompt": "{file:.opencode/agents/dev-code-review-agent.md}\n\n{file:.opencode/skills/dev-code-review/SKILL.md}",
+      "permission": {
+        "*": "deny",
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "skill": "allow",
+        "edit": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "bash": {
+          "*": "deny",
+          "bash gitlab-merge-review/scripts/run-gitlab-merge-review.sh": "allow",
+          "bash ./gitlab-merge-review/scripts/run-gitlab-merge-review.sh": "allow",
+          "bash docker/entrypoint.sh": "allow",
+          "bash ./docker/entrypoint.sh": "allow",
+          "git rev-parse *": "allow",
+          "git merge-base *": "allow",
+          "git diff *": "allow",
+          "git show *": "allow",
+          "git status *": "allow",
+          "git fetch *": "allow",
+          "python3 scripts/run_platform_offline_review.py *": "allow",
+          "python3 scripts/gitlab_context.py *": "allow",
+          "python3 scripts/generate_review_docx.py *": "allow",
+          "python3 gitlab-merge-review/scripts/evaluate_review.py *": "allow",
+          "ocr review *": "allow"
+        }
+      }
+    }
+  },
+  "command": {
+    "dev-code-review": {
+      "description": "Run code review for a GitLab merge request targeting dev.",
+      "agent": "dev-code-review",
+      "model": "{env:OPENCODE_MODEL}",
+      "template": "Use the Dev Code Review skill. Read GitLab merge request context, run `bash gitlab-merge-review/scripts/run-gitlab-merge-review.sh`, inspect `review-output/review-report.json`, and return a concise review summary. Do not modify business code."
+    }
+  }
+}

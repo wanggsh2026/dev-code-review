@@ -1,0 +1,16 @@
+{
+  "target_branch": "dev",
+  "require_target_branch_dev": true,
+  "blocking_severities": ["critical", "high"],
+  "max_medium_findings": 10,
+  "require_ocr_success": true,
+  "require_base_commit": true,
+  "require_changed_files": false,
+  "require_gitlab_context": false,
+  "category_aliases": {
+    "exception": ["exception", "bug", "error", "correctness", "logic", "runtime", "null", "异常"],
+    "security": ["security", "auth", "permission", "injection", "xss", "csrf", "secret", "sensitive", "安全"],
+    "performance": ["performance", "perf", "latency", "memory", "cache", "sql", "n+1", "性能"],
+    "standard": ["standard", "style", "maintainability", "readability", "test", "naming", "规范"]
+  }
+}

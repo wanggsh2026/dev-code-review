@@ -1,0 +1,9 @@
+.git
+review-output
+output
+node_modules
+dist
+build
+target
+**/__pycache__
+*.pyc

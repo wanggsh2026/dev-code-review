@@ -1,0 +1,28 @@
+﻿stages:
+  - code_review
+
+dev_code_review:
+  stage: code_review
+  image:
+    name: "$DEV_CODE_REVIEW_IMAGE"
+    entrypoint: [""]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev"'
+      when: on_success
+    - when: never
+  variables:
+    DEV_CODE_REVIEW_IMAGE: "registry.example.com/platform/dev-code-review:latest"
+    REVIEW_TARGET_BRANCH: "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    REVIEW_BASE_COMMIT: "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    REVIEW_TO_COMMIT: "$CI_COMMIT_SHA"
+    REVIEW_OUTPUT_DIR: "review-output"
+    REVIEW_CONFIG: "/app/gitlab-merge-review/review-config.example.json"
+    GIT_STRATEGY: "fetch"
+    GIT_DEPTH: "0"
+  script:
+    - bash /app/gitlab-merge-review/scripts/run-gitlab-merge-review.sh
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - review-output/
