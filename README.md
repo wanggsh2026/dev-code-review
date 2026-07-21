@@ -8,6 +8,7 @@ It follows the same broad shape as the sibling `cicd` project:
 - GitLab merge request gate under `gitlab-merge-review/`
 - deterministic Python scripts under `scripts/`
 - Docker entrypoint under `docker/`
+- Word report template under `templates/`
 - sample offline inputs under `input/`
 
 ## Main Artifacts
@@ -28,14 +29,21 @@ The workflow writes review artifacts to `review-output/`:
 
 ## Report Template
 
-The report always contains these four sections:
+The Word report is generated from `templates/ai-agent-code-review-template.docx` by default. The generated document follows the attached AI Agent Code Review report template and includes:
 
-1. 寮傚父
-2. 瀹夊叏
-3. 鎬ц兘
-4. 瑙勮寖
+1. 基础信息
+2. Review结论
+3. 异常处理审查
+4. 安全审查
+5. 性能审查
+6. 代码规范审查
+7. CSV安全漏洞专项审查
+8. 问题明细汇总
+9. 准入确认
 
 OCR comments are normalized into those dimensions by `gitlab-merge-review/scripts/evaluate_review.py`.
+
+To use another Word template, pass `REVIEW_DOCX_TEMPLATE=/path/to/template.docx` when running the GitLab or local review script.
 
 ## GitLab Merge Gate
 

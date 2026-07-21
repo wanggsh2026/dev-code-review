@@ -13,6 +13,7 @@ CONFIG_PATH="${REVIEW_CONFIG:-$DEMO_DIR/review-config.example.json}"
 EVALUATOR_PATH="${REVIEW_EVALUATOR:-$SCRIPT_DIR/evaluate_review.py}"
 GITLAB_CONTEXT_SCRIPT="${REVIEW_GITLAB_CONTEXT_SCRIPT:-$APP_ROOT/scripts/gitlab_context.py}"
 DOCX_GENERATOR="${REVIEW_DOCX_GENERATOR:-$APP_ROOT/scripts/generate_review_docx.py}"
+DOCX_TEMPLATE="${REVIEW_DOCX_TEMPLATE:-$APP_ROOT/templates/ai-agent-code-review-template.docx}"
 mkdir -p "$OUTPUT_DIR"
 
 TARGET_BRANCH="${REVIEW_TARGET_BRANCH:-${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-dev}}"
@@ -83,14 +84,16 @@ else
 fi
 
 cat > "$OUTPUT_DIR/review-background.md" <<EOF
-请对 GitLab Merge Request 合并到 ${TARGET_BRANCH} 分支的代码差异进行 code review。重点关注并输出以下四类问题：
+请对 GitLab Merge Request 合并到 ${TARGET_BRANCH} 分支的代码差异进行 code review。重点关注并输出以下四类核心问题：
 
 1. 异常：空指针、边界条件、状态流转、错误处理、兼容性、逻辑缺陷。
 2. 安全：鉴权、越权、注入、敏感信息泄露、日志泄密、依赖风险。
 3. 性能：慢 SQL、N+1 查询、缓存失效、循环/批量处理、内存和并发资源。
 4. 规范：命名、可维护性、重复代码、测试缺失、接口契约、配置约定。
 
-如果发现 critical 或 high 级别问题，CI 会失败并阻断 merge。输出必须能被解析为 OCR JSON comments，每条 finding 尽量包含 severity、category、path、line、content。
+同时请做 CSV 安全专项检查：CSV 导出公式注入、CSV 上传大小/行列数/类型限制、表头和字段校验、路径穿越、脚本注入、资源耗尽等风险。
+
+如果发现 critical 或 high 级别问题，CI 会失败并阻断 merge。输出必须能被解析为 OCR JSON comments，每条 finding 尽量包含 severity、category、path、line、content、suggestion。
 EOF
 
 OCR_STATUS=0
@@ -139,7 +142,8 @@ set -e
 if [[ -f "$DOCX_GENERATOR" && -f "$REPORT_PATH" ]]; then
   python3 "$DOCX_GENERATOR" \
     --report "$REPORT_PATH" \
-    --output "$REPORT_DOCX"
+    --output "$REPORT_DOCX" \
+    --template "$DOCX_TEMPLATE"
 else
   echo "docx report skipped: generator/report not found" >&2
 fi

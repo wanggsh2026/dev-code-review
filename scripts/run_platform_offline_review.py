@@ -40,6 +40,7 @@ def read_review_result(args):
         text = base64.b64decode(args.review_json_base64).decode("utf-8")
     else:
         text = sys.stdin.read()
+    text = text.lstrip("\ufeff")
     return normalize_review_result(json.loads(text))
 
 
@@ -77,6 +78,7 @@ def main():
     parser.add_argument("--input-dir", default="input")
     parser.add_argument("--output-dir", default="output/review-output")
     parser.add_argument("--config", default="gitlab-merge-review/review-config.example.json")
+    parser.add_argument("--docx-template", default="templates/ai-agent-code-review-template.docx")
     parser.add_argument("--review-json", default="")
     parser.add_argument("--review-json-file", default="")
     parser.add_argument("--review-json-base64", default="")
@@ -139,6 +141,8 @@ def main():
             str(report),
             "--output",
             str(report_docx),
+            "--template",
+            str((app_root / args.docx_template).resolve()),
         ],
         app_root,
     )

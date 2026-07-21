@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,7 +15,7 @@ DIMENSIONS = [
 
 DEFAULT_ALIASES = {
     "exception": ["exception", "bug", "error", "correctness", "logic", "runtime", "null", "异常"],
-    "security": ["security", "auth", "permission", "injection", "xss", "csrf", "secret", "sensitive", "安全"],
+    "security": ["security", "auth", "permission", "injection", "xss", "csrf", "secret", "sensitive", "csv", "formula", "公式注入", "安全"],
     "performance": ["performance", "perf", "latency", "memory", "cache", "sql", "n+1", "性能"],
     "standard": ["standard", "style", "maintainability", "readability", "test", "naming", "规范"],
 }
@@ -84,6 +85,13 @@ def normalize_comment(comment, aliases):
         "path": str(comment.get("path") or comment.get("file") or ""),
         "line": comment.get("line") or comment.get("start_line") or comment.get("new_line"),
         "content": str(content).strip(),
+        "suggestion": str(
+            comment.get("suggestion")
+            or comment.get("recommendation")
+            or comment.get("fix")
+            or comment.get("advice")
+            or ""
+        ).strip(),
     }
     if not normalized["category"]:
         normalized["category"] = normalized["dimension"]
@@ -274,6 +282,8 @@ def main():
         "ocr_stderr": ocr_stderr,
         "diff_path": str(Path(args.diff)),
         "report_template": [label for _key, label in DIMENSIONS],
+        "review_tool": "open-code-review / ocr",
+        "review_model": os.environ.get("OCR_LLM_MODEL", ""),
     }
 
     Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

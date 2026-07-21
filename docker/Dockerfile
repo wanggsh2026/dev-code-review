@@ -29,6 +29,7 @@ COPY .opencode/ .opencode/
 COPY docker/ docker/
 COPY gitlab-merge-review/ gitlab-merge-review/
 COPY scripts/ scripts/
+COPY templates/ templates/
 COPY opencode.json opencode.json
 COPY README.md README.md
 
