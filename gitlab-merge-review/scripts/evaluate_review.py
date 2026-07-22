@@ -185,7 +185,7 @@ def write_markdown(path, report):
     now = report["generated_at"]
 
     lines = [
-        "# Code Review 报告",
+        "# 代码审计报告",
         "",
         f"- 结论: {decision['status']}",
         f"- 生成时间: {now}",

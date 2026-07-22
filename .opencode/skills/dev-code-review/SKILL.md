@@ -126,7 +126,7 @@ When running inside the business Agent platform without direct OCR CLI access, u
    - Generate Word when the generator script is available:
 
      ```text
-     review-output/code-review-report.docx
+     review-output/代码审计报告.docx
      ```
 
 7. Return review result.
@@ -146,7 +146,7 @@ review-output/ocr-result.json
 review-output/ocr-stderr.log
 review-output/review-report.json
 review-output/code-review-report.md
-review-output/code-review-report.docx
+review-output/代码审计报告.docx
 ```
 
 `review-report.json` is the source of truth for GitLab blocking behavior. GitLab CI should archive the whole `review-output/` directory regardless of pass or fail.

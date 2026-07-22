@@ -244,7 +244,7 @@ def build_body(report):
     needs_manual = status not in {"PASS", "BLOCKED"} or bool(decision.get("warnings"))
 
     body = [
-        paragraph("AI Agent Code Review报告", "Title"),
+        paragraph("代码审计报告", "Title"),
         paragraph("1. 基础信息", "Heading1"),
         table(
             [

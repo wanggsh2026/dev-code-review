@@ -123,7 +123,7 @@ fi
 
 REPORT_PATH="$OUTPUT_DIR/review-report.json"
 REPORT_MD="$OUTPUT_DIR/code-review-report.md"
-REPORT_DOCX="${REVIEW_DOCX:-$OUTPUT_DIR/code-review-report.docx}"
+REPORT_DOCX="${REVIEW_DOCX:-$OUTPUT_DIR/代码审计报告.docx}"
 
 set +e
 python3 "$EVALUATOR_PATH" \

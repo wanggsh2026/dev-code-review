@@ -25,11 +25,11 @@ The workflow writes review artifacts to `review-output/`:
 | `ocr-stderr.log` | OCR stderr |
 | `review-report.json` | source of truth for PASS/BLOCKED |
 | `code-review-report.md` | human-readable report |
-| `code-review-report.docx` | Word report |
+| `代码审计报告.docx` | Word report |
 
 ## Report Template
 
-The Word report is generated from `templates/ai-agent-code-review-template.docx` by default. The generated document follows the attached AI Agent Code Review report template and includes:
+The Word report is generated as `代码审计报告.docx` from `templates/ai-agent-code-review-template.docx` by default. The generated document follows the attached report template and includes:
 
 1. 基础信息
 2. Review结论

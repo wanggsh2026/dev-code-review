@@ -99,7 +99,7 @@ def main():
     ocr_stderr = output_dir / "ocr-stderr.log"
     report = output_dir / "review-report.json"
     report_md = output_dir / "code-review-report.md"
-    report_docx = output_dir / "code-review-report.docx"
+    report_docx = output_dir / "代码审计报告.docx"
     manifest = output_dir / "platform-offline-run.json"
 
     copy_required(input_dir / "review-context.json", context)
