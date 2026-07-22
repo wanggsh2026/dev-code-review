@@ -63,6 +63,22 @@ docker build -f docker/Dockerfile -t registry.example.com/platform/dev-code-revi
 docker push registry.example.com/platform/dev-code-review:latest
 ```
 
+The Docker build pins npm package versions by default:
+
+| Package | Version |
+| --- | --- |
+| `@alibaba-group/open-code-review` | `1.7.14` |
+| `opencode-ai` | `1.18.4` |
+
+To upgrade deliberately, change the Dockerfile defaults or pass build args:
+
+```bash
+docker build -f docker/Dockerfile \
+  --build-arg OCR_PACKAGE_VERSION=1.7.14 \
+  --build-arg OPENCODE_PACKAGE_VERSION=1.18.4 \
+  -t registry.example.com/platform/dev-code-review:latest .
+```
+
 Run locally inside a checked-out business repo:
 
 ```bash
