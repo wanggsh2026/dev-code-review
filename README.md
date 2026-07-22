@@ -37,7 +37,7 @@ The Word report is generated as `代码审计报告.docx` from `templates/ai-age
 4. 安全审查
 5. 性能审查
 6. 代码规范审查
-7. CSV安全漏洞专项审查
+7. CSV安全合规专项审查
 8. 问题明细汇总
 9. 准入确认
 

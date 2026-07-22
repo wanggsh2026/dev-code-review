@@ -91,7 +91,7 @@ cat > "$OUTPUT_DIR/review-background.md" <<EOF
 3. 性能：慢 SQL、N+1 查询、缓存失效、循环/批量处理、内存和并发资源。
 4. 规范：命名、可维护性、重复代码、测试缺失、接口契约、配置约定。
 
-同时请做 CSV 安全专项检查：CSV 导出公式注入、CSV 上传大小/行列数/类型限制、表头和字段校验、路径穿越、脚本注入、资源耗尽等风险。
+CSV 是外部安全合规审查域，不是逗号分隔文件格式检查。若本次变更命中 CSV 安全合规审查范围，请记录为 CSV 安全合规 finding；若已接入 CSV 部门接口/工具，应以其返回的审查结论、流水号或外部报告链接为准。
 
 如果发现 critical 或 high 级别问题，CI 会失败并阻断 merge。输出必须能被解析为 OCR JSON comments，每条 finding 尽量包含 severity、category、path、line、content、suggestion。
 EOF

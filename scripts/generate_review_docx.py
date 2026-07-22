@@ -183,7 +183,26 @@ def is_csv_finding(item):
         str(item.get(key) or "").lower()
         for key in ("category", "dimension", "path", "content", "suggestion", "recommendation")
     )
-    return "csv" in haystack or "逗号分隔" in haystack
+    return "csv" in haystack or "安全合规" in haystack
+
+
+def csv_compliance_rows(report):
+    rows = [["审查项", "审查结果", "风险等级", "依据/流水号", "处理建议"]]
+    items = [item for item in report.get("findings", []) if is_csv_finding(item)]
+    if not items:
+        rows.append(["CSV安全合规接口/工具审查", "未执行或未命中", "-", "待接入CSV部门接口后记录", "如本次变更命中CSV安全合规范围，应调用CSV部门接口并记录审查结论。"])
+        return rows
+    for item in items:
+        rows.append(
+            [
+                item.get("category") or "CSV安全合规审查",
+                "不通过" if item.get("severity") in {"critical", "high"} else "需确认",
+                item.get("severity", ""),
+                first_non_empty(item.get("ticket"), item.get("trace_id"), item.get("report_id"), item.get("external_url"), item.get("path")),
+                finding_suggestion(item),
+            ]
+        )
+    return rows
 
 
 def section_rows(items, problem_label):
@@ -212,7 +231,7 @@ def summary_rows(report):
         rows.append(["1", "-", "-", "-", "未发现阻断级问题", "-", "☐ 待修复 ☐ 已修复 ☐ 接受风险"])
         return rows
     for idx, item in enumerate(findings, 1):
-        dimension = "CSV安全" if is_csv_finding(item) else labels.get(item.get("dimension"), item.get("dimension", ""))
+        dimension = "CSV安全合规" if is_csv_finding(item) else labels.get(item.get("dimension"), item.get("dimension", ""))
         rows.append(
             [
                 idx,
@@ -309,18 +328,18 @@ def build_body(report):
             checklist("日志级别、错误码、返回结构是否符合项目规范"),
             checklist("测试覆盖是否与变更风险匹配，是否删除关键测试且无替代覆盖"),
             table(section_rows(groups.get("standard", []), "规范问题")),
-            paragraph("7. CSV安全漏洞专项审查", "Heading1"),
-            checklist("CSV导出字段是否防止公式注入：=、+、-、@ 开头内容需转义或前置单引号"),
-            checklist("CSV上传是否限制文件大小、行数、列数、编码和MIME类型"),
-            checklist("分隔符、引号、换行、多字节字符是否按CSV规范解析，避免字段错位"),
-            checklist("是否校验表头、必填列、字段类型和业务枚举，避免脏数据入库"),
-            checklist("是否防止通过CSV内容触发路径穿越、脚本注入、批量越权或资源耗尽"),
-            table(section_rows([item for item in report.get("findings", []) if is_csv_finding(item)], "CSV风险点")),
+            paragraph("7. CSV安全合规专项审查", "Heading1"),
+            checklist("本次变更是否命中 CSV 安全合规审查范围"),
+            checklist("是否已调用 CSV 安全合规审查接口/工具"),
+            checklist("CSV 审查结果是否通过"),
+            checklist("CSV 审查发现的 Critical/High 风险是否已处理或阻断"),
+            checklist("CSV 审查报告编号、流水号或外部报告链接是否已记录"),
+            table(csv_compliance_rows(report)),
             paragraph("8. 问题明细汇总", "Heading1"),
             table(summary_rows(report)),
             paragraph("9. 准入确认", "Heading1"),
             checklist("所有 Critical/High 问题已修复或已有负责人确认", pass_status),
-            checklist("CSV导入/导出相关安全风险已完成专项确认", pass_status),
+            checklist("CSV安全合规审查结果已完成确认", pass_status),
             checklist("影响范围、回归范围、测试结论已补充到提测确认单", pass_status),
             checklist("如本次为 BLOCKED，已在 GitLab/通知渠道同步阻断原因", blocked_status),
             table(
