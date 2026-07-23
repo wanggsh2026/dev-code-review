@@ -269,7 +269,8 @@ def build_body(report):
             [
                 ["项目/服务", project_name(context)],
                 ["代码仓库", first_non_empty(context.get("project_url"), context.get("gitlab_project_url"), context.get("project_path"))],
-                ["源分支 / 目标分支", f"{context.get('source_branch', '')} / {context.get('target_branch', '')}"],
+                ["源分支", context.get("source_branch", "")],
+                ["目标分支", context.get("target_branch", "")],
                 ["Review范围", review_range(context)],
                 ["触发方式", trigger_text(context)],
                 ["提交人 / 研发负责人", context.get("trigger_user", "")],

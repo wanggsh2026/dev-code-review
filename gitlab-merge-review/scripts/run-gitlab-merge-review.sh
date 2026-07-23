@@ -14,6 +14,7 @@ EVALUATOR_PATH="${REVIEW_EVALUATOR:-$SCRIPT_DIR/evaluate_review.py}"
 GITLAB_CONTEXT_SCRIPT="${REVIEW_GITLAB_CONTEXT_SCRIPT:-$APP_ROOT/scripts/gitlab_context.py}"
 DOCX_GENERATOR="${REVIEW_DOCX_GENERATOR:-$APP_ROOT/scripts/generate_review_docx.py}"
 DOCX_TEMPLATE="${REVIEW_DOCX_TEMPLATE:-$APP_ROOT/templates/ai-agent-code-review-template.docx}"
+COMMENT_POSTER="${REVIEW_COMMENT_POSTER:-$SCRIPT_DIR/post_gitlab_review_comments.py}"
 mkdir -p "$OUTPUT_DIR"
 
 TARGET_BRANCH="${REVIEW_TARGET_BRANCH:-${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-dev}}"
@@ -84,8 +85,14 @@ else
 fi
 
 cat > "$OUTPUT_DIR/review-background.md" <<EOF
-请对 GitLab Merge Request 合并到 ${TARGET_BRANCH} 分支的代码差异进行 code review。重点关注并输出以下四类核心问题：
+请对 GitLab Merge Request 合并到 ${TARGET_BRANCH} 分支的代码差异进行代码审计。
 
+输出语言要求：
+- 所有 finding 的 category、content、suggestion 必须使用中文。
+- 如果模型内部先用英文分析，请在最终 JSON comments 中转换为中文。
+- 保留必要的代码标识符、方法名、类名、字段名和异常类型原文。
+
+重点关注并输出以下四类核心问题：
 1. 异常：空指针、边界条件、状态流转、错误处理、兼容性、逻辑缺陷。
 2. 安全：鉴权、越权、注入、敏感信息泄露、日志泄密、依赖风险。
 3. 性能：慢 SQL、N+1 查询、缓存失效、循环/批量处理、内存和并发资源。
@@ -122,7 +129,7 @@ else
 fi
 
 REPORT_PATH="$OUTPUT_DIR/review-report.json"
-REPORT_MD="$OUTPUT_DIR/code-review-report.md"
+REPORT_MD="${REVIEW_MD:-$OUTPUT_DIR/代码审计报告.md}"
 REPORT_DOCX="${REVIEW_DOCX:-$OUTPUT_DIR/代码审计报告.docx}"
 
 set +e
@@ -146,6 +153,18 @@ if [[ -f "$DOCX_GENERATOR" && -f "$REPORT_PATH" ]]; then
     --template "$DOCX_TEMPLATE"
 else
   echo "docx report skipped: generator/report not found" >&2
+fi
+
+if [[ "${REVIEW_POST_COMMENTS:-false}" == "true" && -f "$COMMENT_POSTER" && -f "$REPORT_PATH" ]]; then
+  set +e
+  python3 "$COMMENT_POSTER" \
+    --report "$REPORT_PATH" \
+    --max-findings "${REVIEW_COMMENT_MAX_FINDINGS:-10}"
+  COMMENT_STATUS=$?
+  set -e
+  if [[ "$COMMENT_STATUS" -ne 0 ]]; then
+    echo "GitLab review comment posting failed with exit code $COMMENT_STATUS; continuing without changing review result" >&2
+  fi
 fi
 
 exit "$EVAL_STATUS"

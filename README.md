@@ -13,7 +13,16 @@ It follows the same broad shape as the sibling `cicd` project:
 
 ## Main Artifacts
 
-The workflow writes review artifacts to `review-output/`:
+The workflow writes diagnostic files to `review-output/`, but the GitLab CI template uploads only the final concise report files:
+
+| File | Purpose |
+| --- | --- |
+| `代码审计报告.md` | Markdown report, suitable for GitLab preview |
+| `代码审计报告.docx` | Word report, suitable for formal audit archiving |
+
+When `REVIEW_POST_COMMENTS=true`, the job also posts a concise audit summary to the merge request and tries to add Critical/High findings as GitLab diff line comments.
+
+Diagnostic files may still be generated locally in `review-output/`:
 
 | File | Purpose |
 | --- | --- |
@@ -24,12 +33,10 @@ The workflow writes review artifacts to `review-output/`:
 | `ocr-result.json` | raw OCR-compatible review JSON |
 | `ocr-stderr.log` | OCR stderr |
 | `review-report.json` | source of truth for PASS/BLOCKED |
-| `code-review-report.md` | human-readable report |
-| `代码审计报告.docx` | Word report |
 
 ## Report Template
 
-The Word report is generated as `代码审计报告.docx` from `templates/ai-agent-code-review-template.docx` by default. The generated document follows the attached report template and includes:
+The workflow generates both `代码审计报告.md` and `代码审计报告.docx`. The Word report uses `templates/ai-agent-code-review-template.docx` by default. The generated reports follow the attached report template and include:
 
 1. 基础信息
 2. Review结论
@@ -42,6 +49,7 @@ The Word report is generated as `代码审计报告.docx` from `templates/ai-age
 9. 准入确认
 
 OCR comments are normalized into those dimensions by `gitlab-merge-review/scripts/evaluate_review.py`.
+The OCR prompt requires Chinese finding descriptions and suggestions while preserving necessary code identifiers.
 
 To use another Word template, pass `REVIEW_DOCX_TEMPLATE=/path/to/template.docx` when running the GitLab or local review script.
 
@@ -102,7 +110,16 @@ Required GitLab CI/CD variables:
 | `OCR_LLM_URL` | LLM gateway URL used by `ocr` |
 | `OCR_LLM_TOKEN` | LLM token, set as masked/protected when possible |
 | `OCR_LLM_MODEL` | model name |
-| `GITLAB_TOKEN` | optional; only needed when the job must call GitLab MR APIs beyond the default CI context |
+| `GITLAB_TOKEN` | optional; required when `REVIEW_POST_COMMENTS=true`; use a GitLab personal/project access token with permission to create MR notes |
+
+Optional GitLab CI/CD variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `REVIEW_POST_COMMENTS` | set to `true` to post a concise audit summary and line comments back to the merge request |
+| `REVIEW_COMMENT_MAX_FINDINGS` | maximum Critical/High findings to comment on changed lines; default `10` |
+
+Comment posting is best-effort: if GitLab notes/discussions cannot be created, the job prints a warning but keeps the original audit result. Critical/High findings still make the job fail and block the merge when successful pipelines are required.
 
 To make the review block merging, enable the GitLab project setting that requires successful pipelines before merge.
 

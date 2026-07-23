@@ -98,7 +98,7 @@ def main():
     ocr_result = output_dir / "ocr-result.json"
     ocr_stderr = output_dir / "ocr-stderr.log"
     report = output_dir / "review-report.json"
-    report_md = output_dir / "code-review-report.md"
+    report_md = output_dir / "代码审计报告.md"
     report_docx = output_dir / "代码审计报告.docx"
     manifest = output_dir / "platform-offline-run.json"
 

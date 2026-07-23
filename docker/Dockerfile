@@ -39,7 +39,8 @@ RUN chmod +x docker/entrypoint.sh \
       scripts/generate_review_docx.py \
       scripts/gitlab_context.py \
       scripts/run_platform_offline_review.py \
-      gitlab-merge-review/scripts/evaluate_review.py
+      gitlab-merge-review/scripts/evaluate_review.py \
+      gitlab-merge-review/scripts/post_gitlab_review_comments.py
 
 WORKDIR /workspace
 

@@ -17,6 +17,8 @@ dev_code_review:
     REVIEW_TO_COMMIT: "$CI_COMMIT_SHA"
     REVIEW_OUTPUT_DIR: "review-output"
     REVIEW_CONFIG: "/app/gitlab-merge-review/review-config.example.json"
+    REVIEW_POST_COMMENTS: "false"
+    REVIEW_COMMENT_MAX_FINDINGS: "10"
     GIT_STRATEGY: "fetch"
     GIT_DEPTH: "0"
   script:
@@ -25,4 +27,5 @@ dev_code_review:
     when: always
     expire_in: 14 days
     paths:
-      - review-output/
+      - review-output/代码审计报告.md
+      - review-output/代码审计报告.docx

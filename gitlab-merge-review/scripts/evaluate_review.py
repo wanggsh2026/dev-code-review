@@ -129,35 +129,35 @@ def make_decision(config, context, changed_files, ocr_exit_code, ocr_stderr, com
     expected_target = str(config.get("target_branch", "dev"))
     target_branch = str(context.get("target_branch", ""))
     if config.get("require_target_branch_dev", True) and target_branch != expected_target:
-        blocking.append(f"target branch must be {expected_target}, got {target_branch or 'empty'}")
+        blocking.append(f"目标分支必须是 {expected_target}，当前为 {target_branch or '空'}")
 
     if config.get("require_base_commit", True) and not context.get("base_commit"):
-        blocking.append("base_commit is required but empty")
+        blocking.append("base_commit 不能为空")
 
     if config.get("require_changed_files", False) and not changed_files:
-        blocking.append("changed files are required but empty")
+        blocking.append("变更文件列表不能为空")
     elif not changed_files:
-        warnings.append("No changed files were found")
+        warnings.append("未发现变更文件")
 
     if config.get("require_gitlab_context", False):
         if not context.get("gitlab_project_id") and not context.get("gitlab_project_url"):
-            blocking.append("GitLab context is required but missing")
+            blocking.append("缺少必要的 GitLab 上下文")
     elif not context.get("gitlab_mr_iid"):
-        warnings.append("No GitLab MR IID was provided; report uses commit-level context")
+        warnings.append("未提供 GitLab MR IID，报告将使用提交级上下文")
 
     if config.get("require_ocr_success", True) and ocr_exit_code != 0:
         detail = ocr_stderr.strip().splitlines()
         suffix = f": {detail[0]}" if detail else ""
-        blocking.append(f"OCR execution failed with exit code {ocr_exit_code}{suffix}")
+        blocking.append(f"OCR 执行失败，退出码 {ocr_exit_code}{suffix}")
 
     for severity in config.get("blocking_severities", ["critical", "high"]):
         count = counts.get(str(severity).lower(), 0)
         if count > 0:
-            blocking.append(f"OCR found {count} {severity} finding(s)")
+            blocking.append(f"OCR 发现 {count} 个 {severity} 级别问题")
 
     max_medium = config.get("max_medium_findings")
     if isinstance(max_medium, int) and counts.get("medium", 0) > max_medium:
-        blocking.append(f"OCR found {counts.get('medium', 0)} medium finding(s), limit is {max_medium}")
+        blocking.append(f"OCR 发现 {counts.get('medium', 0)} 个 medium 级别问题，超过上限 {max_medium}")
 
     return {
         "status": "PASS" if not blocking else "BLOCKED",
@@ -177,74 +177,192 @@ def markdown_table_row(values):
     return "| " + " | ".join(escaped) + " |"
 
 
+def first_non_empty(*values):
+    for value in values:
+        if value:
+            return str(value)
+    return ""
+
+
+def short_commit(value):
+    text = str(value or "")
+    return text[:8] if len(text) > 8 else text
+
+
+def project_name(context):
+    path = first_non_empty(context.get("project_path"), context.get("project_url"), context.get("gitlab_project_url"))
+    return path.rstrip("/").split("/")[-1].removesuffix(".git") if path else ""
+
+
+def review_range(context):
+    base = short_commit(context.get("base_commit"))
+    to = short_commit(context.get("to_commit"))
+    mr = context.get("gitlab_mr_iid")
+    parts = []
+    if base or to:
+        parts.append(f"{base}..{to}")
+    if mr:
+        parts.append(f"MR !{mr}")
+    return " / ".join(parts)
+
+
+def finding_suggestion(item):
+    return first_non_empty(
+        item.get("suggestion"),
+        item.get("recommendation"),
+        item.get("fix"),
+        item.get("advice"),
+        "请按问题描述修复，并补充必要的回归验证。",
+    )
+
+
+def is_csv_finding(item):
+    haystack = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ("category", "dimension", "path", "content", "suggestion", "recommendation")
+    )
+    return "csv" in haystack or "安全合规" in haystack
+
+
+def severity_count(decision, severity):
+    return decision.get("severity_counts", {}).get(severity, 0)
+
+
+def append_table(lines, headers, rows):
+    lines.append(markdown_table_row(headers))
+    lines.append(markdown_table_row(["---"] * len(headers)))
+    if rows:
+        for row in rows:
+            lines.append(markdown_table_row(row))
+    else:
+        lines.append(markdown_table_row(["-"] * len(headers)))
+
+
+def append_findings_section(lines, title, items, problem_label):
+    lines.extend(["", f"## {title}", ""])
+    append_table(
+        lines,
+        ["文件路径", "行号", problem_label, "风险等级", "修复建议"],
+        [
+            [
+                item.get("path", ""),
+                item.get("line", ""),
+                item.get("content", ""),
+                item.get("severity", ""),
+                finding_suggestion(item),
+            ]
+            for item in items
+        ],
+    )
+
+
 def write_markdown(path, report):
     context = report["context"]
     decision = report["decision"]
     groups = report["findings_by_dimension"]
     changed_files = report["changed_files"]
     now = report["generated_at"]
+    labels = dict(DIMENSIONS)
+    review_model = first_non_empty(report.get("review_model"), os.environ.get("OCR_LLM_MODEL"), "________")
 
     lines = [
         "# 代码审计报告",
         "",
-        f"- 结论: {decision['status']}",
-        f"- 生成时间: {now}",
-        f"- 目标分支: {context.get('target_branch', '')}",
-        f"- 来源分支: {context.get('source_branch', '')}",
-        f"- Base Commit: {context.get('base_commit', '')}",
-        f"- To Commit: {context.get('to_commit', '')}",
-        f"- GitLab Project: {context.get('project_path', '') or context.get('project_url', '')}",
-        f"- Pipeline: {context.get('pipeline_url', '') or context.get('pipeline_id', '')}",
-        f"- GitLab MR: {context.get('gitlab_mr_iid', '') or 'N/A'}",
+        "## 1. 基础信息",
         "",
-        "## 总览",
-        "",
-        markdown_table_row(["维度", "数量"]),
+        markdown_table_row(["项目", "内容"]),
         markdown_table_row(["---", "---"]),
+        markdown_table_row(["项目/服务", project_name(context)]),
+        markdown_table_row(["代码仓库", first_non_empty(context.get("project_url"), context.get("gitlab_project_url"), context.get("project_path"))]),
+        markdown_table_row(["源分支", context.get("source_branch", "")]),
+        markdown_table_row(["目标分支", context.get("target_branch", "")]),
+        markdown_table_row(["Review 范围", review_range(context)]),
+        markdown_table_row(["触发方式", "GitLab MR" if context.get("gitlab_mr_iid") else context.get("pipeline_source", "")]),
+        markdown_table_row(["提交人/研发负责人", context.get("trigger_user", "")]),
+        markdown_table_row(["Review 日期", now[:10]]),
+        markdown_table_row(["Review 工具/模型", f"open-code-review / ocr / LLM 模型：{review_model}"]),
+        "",
+        "## 2. Review 结论",
+        "",
+        f"- 结论：{decision['status']}",
+        "",
     ]
+    append_table(
+        lines,
+        ["风险等级", "数量", "是否阻断", "说明"],
+        [
+            ["Critical", severity_count(decision, "critical"), "是" if severity_count(decision, "critical") else "否", "安全漏洞、数据破坏、权限绕过、线上不可恢复风险"],
+            ["High", severity_count(decision, "high"), "是" if severity_count(decision, "high") else "否", "高概率故障、核心流程异常、明显安全/性能风险"],
+            ["Medium", severity_count(decision, "medium"), "否", "需修复或确认，但可按策略决定是否阻断"],
+            ["Low", severity_count(decision, "low"), "否", "规范、可维护性、轻微边界问题"],
+        ],
+    )
 
-    labels = dict(DIMENSIONS)
-    for key, label in DIMENSIONS:
-        lines.append(markdown_table_row([label, decision["dimension_counts"].get(key, 0)]))
-
-    lines.extend([
-        "",
-        "## 变更文件",
-        "",
-    ])
-    if changed_files:
-        lines.extend([f"- {item}" for item in changed_files])
-    else:
-        lines.append("- 无")
-
-    lines.extend([
-        "",
-        "## 阻断原因",
-        "",
-    ])
+    lines.extend(["", "### 阻断原因", ""])
     if decision["blocking_reasons"]:
         lines.extend([f"- {item}" for item in decision["blocking_reasons"]])
     else:
         lines.append("- 无")
 
     if decision["warnings"]:
-        lines.extend(["", "## 提示", ""])
+        lines.extend(["", "### 提示", ""])
         lines.extend([f"- {item}" for item in decision["warnings"]])
 
-    for key, label in DIMENSIONS:
-        lines.extend([
-            "",
-            f"## {label}",
-            "",
-            markdown_table_row(["级别", "文件", "行号", "问题"]),
-            markdown_table_row(["---", "---", "---", "---"]),
-        ])
-        items = groups.get(key, [])
-        if items:
-            for item in items:
-                lines.append(markdown_table_row([item["severity"], item["path"], item["line"] or "", item["content"]]))
-        else:
-            lines.append(markdown_table_row(["-", "-", "-", "未发现"]))
+    lines.extend(["", "### Review 变更文件", ""])
+    if changed_files:
+        lines.extend([f"- {item}" for item in changed_files])
+    else:
+        lines.append("- 无")
+
+    append_findings_section(lines, "3. 异常处理审查", groups.get("exception", []), "问题描述")
+    append_findings_section(lines, "4. 安全审查", groups.get("security", []), "安全风险")
+    append_findings_section(lines, "5. 性能审查", groups.get("performance", []), "性能问题")
+    append_findings_section(lines, "6. 代码规范审查", groups.get("standard", []), "规范问题")
+
+    csv_items = [item for item in report.get("findings", []) if is_csv_finding(item)]
+    lines.extend(["", "## 7. CSV 安全合规专项审查", ""])
+    append_table(
+        lines,
+        ["审查项", "审查结果", "风险等级", "依据/流水号", "处理建议"],
+        [
+            [
+                item.get("category") or "CSV 安全合规审查",
+                "不通过" if item.get("severity") in {"critical", "high"} else "需确认",
+                item.get("severity", ""),
+                first_non_empty(item.get("ticket"), item.get("trace_id"), item.get("report_id"), item.get("external_url"), item.get("path")),
+                finding_suggestion(item),
+            ]
+            for item in csv_items
+        ] or [["CSV 安全合规接口/工具审查", "未执行或未命中", "-", "待接入 CSV 部门接口后记录", "如本次变更命中 CSV 安全合规范围，应调用 CSV 部门接口并记录审查结论。"]],
+    )
+
+    lines.extend(["", "## 8. 问题明细汇总", ""])
+    append_table(
+        lines,
+        ["序号", "分类", "文件路径", "行号", "问题描述", "风险等级", "处理结论"],
+        [
+            [
+                idx,
+                "CSV 安全合规" if is_csv_finding(item) else labels.get(item.get("dimension"), item.get("dimension", "")),
+                item.get("path", ""),
+                item.get("line", ""),
+                item.get("content", ""),
+                item.get("severity", ""),
+                "待修复 / 已修复 / 接受风险",
+            ]
+            for idx, item in enumerate(report.get("findings") or [], 1)
+        ] or [["1", "-", "-", "-", "未发现阻断级问题", "-", "-"]],
+    )
+
+    lines.extend([
+        "",
+        "## 9. 准入确认",
+        "",
+        "- [ ] 所有 Critical/High 问题已修复或已有负责人确认",
+        "- [ ] CSV 安全合规审查结果已完成确认",
+        "- [ ] 影响范围、回归范围、测试结论已补充到提测确认单",
+        "- [ ] 如本次为 BLOCKED，已在 GitLab/通知渠道同步阻断原因",
+    ])
 
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
