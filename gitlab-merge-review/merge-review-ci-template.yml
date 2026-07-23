@@ -19,6 +19,10 @@ dev_code_review:
     REVIEW_CONFIG: "/app/gitlab-merge-review/review-config.example.json"
     REVIEW_POST_COMMENTS: "false"
     REVIEW_COMMENT_MAX_FINDINGS: "10"
+    REVIEW_NOTIFY_WECHAT: "false"
+    WECHAT_NOTIFY_ON: "always"
+    WECHAT_NOTIFY_STYLE: "fun"
+    WECHAT_NOTIFY_MAX_FINDINGS: "3"
     GIT_STRATEGY: "fetch"
     GIT_DEPTH: "0"
   script:

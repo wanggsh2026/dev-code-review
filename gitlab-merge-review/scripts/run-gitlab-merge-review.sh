@@ -15,6 +15,7 @@ GITLAB_CONTEXT_SCRIPT="${REVIEW_GITLAB_CONTEXT_SCRIPT:-$APP_ROOT/scripts/gitlab_
 DOCX_GENERATOR="${REVIEW_DOCX_GENERATOR:-$APP_ROOT/scripts/generate_review_docx.py}"
 DOCX_TEMPLATE="${REVIEW_DOCX_TEMPLATE:-$APP_ROOT/templates/ai-agent-code-review-template.docx}"
 COMMENT_POSTER="${REVIEW_COMMENT_POSTER:-$SCRIPT_DIR/post_gitlab_review_comments.py}"
+WECHAT_NOTIFIER="${REVIEW_WECHAT_NOTIFIER:-$SCRIPT_DIR/post_wechat_notification.py}"
 mkdir -p "$OUTPUT_DIR"
 
 TARGET_BRANCH="${REVIEW_TARGET_BRANCH:-${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-dev}}"
@@ -164,6 +165,18 @@ if [[ "${REVIEW_POST_COMMENTS:-false}" == "true" && -f "$COMMENT_POSTER" && -f "
   set -e
   if [[ "$COMMENT_STATUS" -ne 0 ]]; then
     echo "GitLab review comment posting failed with exit code $COMMENT_STATUS; continuing without changing review result" >&2
+  fi
+fi
+
+if [[ "${REVIEW_NOTIFY_WECHAT:-false}" == "true" && -f "$WECHAT_NOTIFIER" && -f "$REPORT_PATH" ]]; then
+  set +e
+  python3 "$WECHAT_NOTIFIER" \
+    --report "$REPORT_PATH" \
+    --max-findings "${WECHAT_NOTIFY_MAX_FINDINGS:-3}"
+  WECHAT_STATUS=$?
+  set -e
+  if [[ "$WECHAT_STATUS" -ne 0 ]]; then
+    echo "WeCom notification failed with exit code $WECHAT_STATUS; continuing without changing review result" >&2
   fi
 fi
 

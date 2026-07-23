@@ -21,6 +21,7 @@ The workflow writes diagnostic files to `review-output/`, but the GitLab CI temp
 | `代码审计报告.docx` | Word report, suitable for formal audit archiving |
 
 When `REVIEW_POST_COMMENTS=true`, the job also posts a concise audit summary to the merge request and tries to add Critical/High findings as GitLab diff line comments.
+When `REVIEW_NOTIFY_WECHAT=true`, the job sends a lightweight WeCom group robot notification after the audit report is generated.
 
 Diagnostic files may still be generated locally in `review-output/`:
 
@@ -111,6 +112,7 @@ Required GitLab CI/CD variables:
 | `OCR_LLM_TOKEN` | LLM token, set as masked/protected when possible |
 | `OCR_LLM_MODEL` | model name |
 | `GITLAB_TOKEN` | optional; required when `REVIEW_POST_COMMENTS=true`; use a GitLab personal/project access token with permission to create MR notes |
+| `WECHAT_WEBHOOK_URL` | optional; required when `REVIEW_NOTIFY_WECHAT=true`; WeCom group robot webhook URL |
 
 Optional GitLab CI/CD variables:
 
@@ -118,8 +120,24 @@ Optional GitLab CI/CD variables:
 | --- | --- |
 | `REVIEW_POST_COMMENTS` | set to `true` to post a concise audit summary and line comments back to the merge request |
 | `REVIEW_COMMENT_MAX_FINDINGS` | maximum Critical/High findings to comment on changed lines; default `10` |
+| `REVIEW_NOTIFY_WECHAT` | set to `true` to send a WeCom group robot notification |
+| `WECHAT_NOTIFY_ON` | notification condition: `always`, `blocked`, or `pass`; default `always` |
+| `WECHAT_NOTIFY_STYLE` | notification tone: `fun` or `formal`; default `fun` |
+| `WECHAT_NOTIFY_MAX_FINDINGS` | maximum Critical/High findings shown in WeCom notification; default `3` |
 
 Comment posting is best-effort: if GitLab notes/discussions cannot be created, the job prints a warning but keeps the original audit result. Critical/High findings still make the job fail and block the merge when successful pipelines are required.
+WeCom notification is also best-effort. The default `fun` style uses lightweight group-chat copy:
+
+```text
+恭喜这位牛马：gaoshan
+成功完成代码审计挑战，并且活着走出了 review 区。
+
+项目：dev-code-review-test
+MR：feature/v1.0 -> dev
+结果：审计通过，可以合并
+```
+
+For blocked audits, the result is sent as `代码合并失败，审计未通过`.
 
 To make the review block merging, enable the GitLab project setting that requires successful pipelines before merge.
 
