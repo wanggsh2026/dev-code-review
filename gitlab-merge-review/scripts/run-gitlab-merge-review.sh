@@ -11,6 +11,7 @@ cd "$ROOT_DIR"
 OUTPUT_DIR="${REVIEW_OUTPUT_DIR:-review-output}"
 CONFIG_PATH="${REVIEW_CONFIG:-$DEMO_DIR/review-config.example.json}"
 EVALUATOR_PATH="${REVIEW_EVALUATOR:-$SCRIPT_DIR/evaluate_review.py}"
+SCOPE_FILTER="${REVIEW_SCOPE_FILTER:-$SCRIPT_DIR/filter_review_scope.py}"
 GITLAB_CONTEXT_SCRIPT="${REVIEW_GITLAB_CONTEXT_SCRIPT:-$APP_ROOT/scripts/gitlab_context.py}"
 DOCX_GENERATOR="${REVIEW_DOCX_GENERATOR:-$APP_ROOT/scripts/generate_review_docx.py}"
 DOCX_TEMPLATE="${REVIEW_DOCX_TEMPLATE:-$APP_ROOT/templates/ai-agent-code-review-template.docx}"
@@ -42,11 +43,24 @@ if [[ -z "$BASE_COMMIT" ]]; then
 fi
 
 if [[ -n "$BASE_COMMIT" ]]; then
-  git diff --name-only "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.txt"
-  git diff --no-ext-diff --unified=80 "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/diff.patch" || true
+  git diff --name-only "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt"
+  git diff --no-ext-diff --unified=80 "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
 else
-  git show --name-only --format='' "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.txt" || true
-  git show --format=medium --no-ext-diff --unified=80 "$TO_COMMIT" > "$OUTPUT_DIR/diff.patch" || true
+  git show --name-only --format='' "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt" || true
+  git show --format=medium --no-ext-diff --unified=80 "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
+fi
+
+if [[ -f "$SCOPE_FILTER" ]]; then
+  python3 "$SCOPE_FILTER" \
+    --config "$CONFIG_PATH" \
+    --changed-files "$OUTPUT_DIR/changed-files.raw.txt" \
+    --diff "$OUTPUT_DIR/diff.raw.patch" \
+    --output-changed-files "$OUTPUT_DIR/changed-files.txt" \
+    --output-diff "$OUTPUT_DIR/diff.patch" \
+    --summary "$OUTPUT_DIR/review-scope.json"
+else
+  cp "$OUTPUT_DIR/changed-files.raw.txt" "$OUTPUT_DIR/changed-files.txt"
+  cp "$OUTPUT_DIR/diff.raw.patch" "$OUTPUT_DIR/diff.patch"
 fi
 
 cat > "$OUTPUT_DIR/review-context.json" <<JSON
@@ -104,11 +118,23 @@ CSV 是外部安全合规审查域，不是逗号分隔文件格式检查。若�
 如果发现 critical 或 high 级别问题，CI 会失败并阻断 merge。输出必须能被解析为 OCR JSON comments，每条 finding 尽量包含 severity、category、path、line、content、suggestion。
 EOF
 
+cat >> "$OUTPUT_DIR/review-background.md" <<EOF
+
+Review scope:
+- Only review files kept in changed-files.txt and diff.patch after scope filtering.
+- Ignore dependency directories, build artifacts, generated reports, documents, images, media files, and lock files.
+- Business source files such as Java, frontend source, scripts, SQL, and runtime configuration files remain in scope.
+EOF
+
 OCR_STATUS=0
 OCR_STDERR="$OUTPUT_DIR/ocr-stderr.log"
 OCR_RESULT="$OUTPUT_DIR/ocr-result.json"
 
-if ! command -v ocr >/dev/null 2>&1; then
+if [[ ! -s "$OUTPUT_DIR/changed-files.txt" ]]; then
+  OCR_STATUS=0
+  echo "no reviewable files after scope filtering; skipped ocr review" > "$OCR_STDERR"
+  echo '{"comments":[]}' > "$OCR_RESULT"
+elif ! command -v ocr >/dev/null 2>&1; then
   OCR_STATUS=127
   echo "ocr command not found in review image or GitLab runner" > "$OCR_STDERR"
   echo '{"comments":[]}' > "$OCR_RESULT"

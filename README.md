@@ -20,7 +20,7 @@ The workflow writes diagnostic files to `review-output/`, but the GitLab CI temp
 | `代码审计报告.md` | Markdown report, suitable for GitLab preview |
 | `代码审计报告.docx` | Word report, suitable for formal audit archiving |
 
-When `REVIEW_POST_COMMENTS=true`, the job also posts a concise audit summary to the merge request and tries to add Critical/High findings as GitLab diff line comments.
+When `REVIEW_POST_COMMENTS=true`, the job also posts a concise audit summary to the merge request and tries to add Critical/High findings as GitLab diff line comments. A line comment is only posted when the finding's file/line and code identifiers match the actual added diff context; otherwise the finding stays in the MR summary and report instead of being attached to a misleading line.
 When `REVIEW_NOTIFY_WECHAT=true`, the job sends a lightweight WeCom group robot notification after the audit report is generated.
 
 Diagnostic files may still be generated locally in `review-output/`:
@@ -31,9 +31,24 @@ Diagnostic files may still be generated locally in `review-output/`:
 | `gitlab-context.json` | normalized GitLab MR context when available |
 | `changed-files.txt` | files changed by `base_commit..to_commit` |
 | `diff.patch` | patch reviewed by OCR/model |
+| `review-scope.json` | reviewed/skipped file scope summary |
 | `ocr-result.json` | raw OCR-compatible review JSON |
 | `ocr-stderr.log` | OCR stderr |
 | `review-report.json` | source of truth for PASS/BLOCKED |
+
+## Review Scope Filtering
+
+Before OCR runs, the workflow filters the changed file list and patch. Business source files are kept in scope, including Java/Kotlin/Groovy, frontend source, scripts, SQL, Docker/GitLab CI files, and runtime configuration files.
+
+The default filter skips files that are noisy or not useful for code audit:
+
+- dependency and generated directories such as `node_modules/`, `vendor/`, `target/`, `build/`, `dist/`, `out/`, `.gradle/`
+- documents and media such as `README.md`, `docs/`, `*.md`, `*.docx`, `*.pdf`, images, and videos
+- binary/build artifacts and archives such as `*.class`, `*.jar`, `*.war`, `*.zip`, `*.tar.gz`
+- logs/temp/cache/backup files such as `*.log`, `*.tmp`, `*.cache`, `*.bak`
+- lock/report files such as `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock`, `coverage/`, `*.lcov`
+
+The exact rules are in `gitlab-merge-review/review-config.example.json` under `review_scope`. `RiskMarker.java` or similar Java business files are still reviewed unless they live under an excluded generated/dependency directory.
 
 ## Report Template
 
@@ -123,6 +138,7 @@ Optional GitLab CI/CD variables:
 | `REVIEW_NOTIFY_WECHAT` | set to `true` to send a WeCom group robot notification |
 | `WECHAT_NOTIFY_ON` | notification condition: `always`, `blocked`, or `pass`; default `always` |
 | `WECHAT_NOTIFY_STYLE` | notification tone: `fun` or `formal`; default `fun` |
+| `REVIEW_SCOPE_FILTER` | optional path to a custom scope-filter script; default uses `gitlab-merge-review/scripts/filter_review_scope.py` |
 
 Comment posting is best-effort: if GitLab notes/discussions cannot be created, the job prints a warning but keeps the original audit result. Critical/High findings still make the job fail and block the merge when successful pipelines are required.
 WeCom notification is also best-effort. It only sends a lightweight summary and links readers back to GitLab for line comments and full reports. The default `fun` style uses group-chat copy like:

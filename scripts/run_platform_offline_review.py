@@ -93,8 +93,11 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     context = output_dir / "review-context.json"
+    changed_files_raw = output_dir / "changed-files.raw.txt"
+    diff_patch_raw = output_dir / "diff.raw.patch"
     changed_files = output_dir / "changed-files.txt"
     diff_patch = output_dir / "diff.patch"
+    review_scope = output_dir / "review-scope.json"
     ocr_result = output_dir / "ocr-result.json"
     ocr_stderr = output_dir / "ocr-stderr.log"
     report = output_dir / "review-report.json"
@@ -103,17 +106,42 @@ def main():
     manifest = output_dir / "platform-offline-run.json"
 
     copy_required(input_dir / "review-context.json", context)
-    copy_required(input_dir / "changed-files.txt", changed_files)
-    copy_required(input_dir / "diff.patch", diff_patch)
+    copy_required(input_dir / "changed-files.txt", changed_files_raw)
+    copy_required(input_dir / "diff.patch", diff_patch_raw)
     write_json(ocr_result, read_review_result(args))
     ocr_stderr.write_text("", encoding="utf-8")
+
+    config_path = (app_root / args.config).resolve()
+    scope_filter = app_root / "gitlab-merge-review" / "scripts" / "filter_review_scope.py"
+    scope_proc = run_command(
+        [
+            sys.executable,
+            str(scope_filter),
+            "--config",
+            str(config_path),
+            "--changed-files",
+            str(changed_files_raw),
+            "--diff",
+            str(diff_patch_raw),
+            "--output-changed-files",
+            str(changed_files),
+            "--output-diff",
+            str(diff_patch),
+            "--summary",
+            str(review_scope),
+        ],
+        app_root,
+    )
+    if scope_proc.returncode != 0:
+        shutil.copyfile(changed_files_raw, changed_files)
+        shutil.copyfile(diff_patch_raw, diff_patch)
 
     evaluator = app_root / "gitlab-merge-review" / "scripts" / "evaluate_review.py"
     evaluate_cmd = [
         sys.executable,
         str(evaluator),
         "--config",
-        str((app_root / args.config).resolve()),
+        str(config_path),
         "--context",
         str(context),
         "--changed-files",
@@ -159,15 +187,19 @@ def main():
             "review_status": status,
             "evaluator_exit_code": eval_proc.returncode,
             "docx_exit_code": docx_proc.returncode,
+            "scope_filter_exit_code": scope_proc.returncode,
             "artifacts": {
                 "review_context": str(context),
                 "changed_files": str(changed_files),
                 "diff_patch": str(diff_patch),
+                "review_scope": str(review_scope),
                 "ocr_result": str(ocr_result),
                 "review_report": str(report),
                 "markdown": str(report_md),
                 "docx": str(report_docx),
             },
+            "scope_filter_stdout": scope_proc.stdout,
+            "scope_filter_stderr": scope_proc.stderr,
             "evaluator_stdout": eval_proc.stdout,
             "evaluator_stderr": eval_proc.stderr,
             "docx_stdout": docx_proc.stdout,

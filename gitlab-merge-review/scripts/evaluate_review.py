@@ -40,6 +40,33 @@ def read_lines(path):
     return [line.strip() for line in read_text(path).splitlines() if line.strip()]
 
 
+def normalize_path(value):
+    path = str(value or "").lstrip("\ufeff").strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    if path.startswith("a/") or path.startswith("b/"):
+        path = path[2:]
+    return path
+
+
+def filter_comments_by_changed_files(comments, changed_files):
+    allowed_paths = {normalize_path(path) for path in changed_files if normalize_path(path)}
+    if not allowed_paths:
+        return [item for item in comments if not normalize_path(item.get("path"))], [
+            item for item in comments if normalize_path(item.get("path"))
+        ]
+
+    kept = []
+    skipped = []
+    for item in comments:
+        path = normalize_path(item.get("path"))
+        if path and path not in allowed_paths:
+            skipped.append(item)
+        else:
+            kept.append(item)
+    return kept, skipped
+
+
 def collect_comments(raw):
     if isinstance(raw, list):
         comments = raw
@@ -387,8 +414,11 @@ def main():
     ocr_stderr = read_text(args.ocr_stderr)
     changed_files = read_lines(args.changed_files)
     comments = [normalize_comment(item, aliases) for item in collect_comments(raw_result)]
+    comments, skipped_scope_comments = filter_comments_by_changed_files(comments, changed_files)
 
     decision = make_decision(config, context, changed_files, args.ocr_exit_code, ocr_stderr, comments)
+    if skipped_scope_comments:
+        decision["warnings"].append(f"已忽略 {len(skipped_scope_comments)} 条不在审查文件范围内的 OCR 结果")
     report = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
         "decision": decision,
@@ -396,6 +426,7 @@ def main():
         "changed_files": changed_files,
         "findings": comments,
         "findings_by_dimension": group_by_dimension(comments),
+        "filtered_out_of_scope_findings": skipped_scope_comments,
         "ocr_exit_code": args.ocr_exit_code,
         "ocr_stderr": ocr_stderr,
         "diff_path": str(Path(args.diff)),

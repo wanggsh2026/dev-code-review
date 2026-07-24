@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -138,6 +139,187 @@ def sorted_findings(findings):
     )
 
 
+def normalize_path(value):
+    text = str(value or "").replace("\\", "/").lstrip("\ufeff").strip()
+    while text.startswith("./"):
+        text = text[2:]
+    if text.startswith("a/") or text.startswith("b/"):
+        text = text[2:]
+    return text
+
+
+def resolve_diff_path(report, report_path):
+    raw_path = str(report.get("diff_path") or "").strip()
+    candidates = []
+    if raw_path:
+        diff_path = Path(raw_path)
+        candidates.append(diff_path)
+        if not diff_path.is_absolute():
+            candidates.append(Path.cwd() / diff_path)
+            candidates.append(Path(report_path).resolve().parent / diff_path.name)
+    candidates.append(Path(report_path).resolve().parent / "diff.patch")
+
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def parse_added_diff_lines(diff_text):
+    added = {}
+    current_path = ""
+    new_line_no = None
+
+    for raw_line in diff_text.splitlines():
+        if raw_line.startswith("diff --git "):
+            current_path = ""
+            new_line_no = None
+            parts = raw_line.split()
+            if len(parts) >= 4:
+                current_path = normalize_path(parts[3])
+            continue
+
+        if raw_line.startswith("+++ "):
+            path = raw_line[4:].strip()
+            if path != "/dev/null":
+                current_path = normalize_path(path)
+            continue
+
+        if raw_line.startswith("@@ "):
+            match = re.search(r"\+(\d+)(?:,(\d+))?", raw_line)
+            new_line_no = int(match.group(1)) if match else None
+            continue
+
+        if not current_path or new_line_no is None:
+            continue
+        if raw_line.startswith("\\ No newline"):
+            continue
+        if raw_line.startswith("+"):
+            added.setdefault(current_path, {})[new_line_no] = raw_line[1:]
+            new_line_no += 1
+        elif raw_line.startswith("-"):
+            continue
+        else:
+            new_line_no += 1
+
+    return added
+
+
+def load_added_diff_lines(report, report_path):
+    diff_path = resolve_diff_path(report, report_path)
+    if not diff_path:
+        return {}
+    try:
+        return parse_added_diff_lines(diff_path.read_text(encoding="utf-8-sig", errors="replace"))
+    except OSError as exc:
+        print(f"warning: failed to read diff for line comment validation: {exc}", file=sys.stderr)
+        return {}
+
+
+TOKEN_STOPWORDS = {
+    "and",
+    "are",
+    "bug",
+    "can",
+    "case",
+    "class",
+    "code",
+    "critical",
+    "data",
+    "does",
+    "error",
+    "exception",
+    "false",
+    "file",
+    "fix",
+    "for",
+    "from",
+    "high",
+    "issue",
+    "java",
+    "line",
+    "low",
+    "medium",
+    "method",
+    "null",
+    "risk",
+    "security",
+    "should",
+    "sql",
+    "string",
+    "that",
+    "the",
+    "this",
+    "token",
+    "true",
+    "use",
+    "user",
+    "when",
+    "with",
+}
+
+
+def is_stable_code_token(token):
+    token = str(token or "").strip()
+    if len(token) < 4:
+        return False
+    if token.lower() in TOKEN_STOPWORDS:
+        return False
+    if re.search(r"[A-Z]", token[1:]):
+        return True
+    if re.search(r"[0-9_.$-]", token):
+        return True
+    return False
+
+
+def extract_finding_tokens(item):
+    text = " ".join(
+        str(item.get(key) or "")
+        for key in ("content", "suggestion", "recommendation", "fix", "category", "dimension")
+    )
+    tokens = set()
+    for token in re.findall(r"`([^`]{3,80})`", text):
+        token = token.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.$-]*", token) and is_stable_code_token(token):
+            tokens.add(token)
+    for token in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]{2,}\b", text):
+        if is_stable_code_token(token):
+            tokens.add(token)
+    for token in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", text):
+        if is_stable_code_token(token):
+            tokens.add(token)
+    return sorted(tokens, key=len, reverse=True)
+
+
+def line_context_matches_finding(item, added_lines_by_path, window=2):
+    path = normalize_path(item.get("path"))
+    line_text = str(item.get("line") or "")
+    if not path or not line_text.isdigit():
+        return False, "missing path or numeric line"
+
+    line = int(line_text)
+    added_lines = added_lines_by_path.get(path) or {}
+    if line not in added_lines:
+        return False, "line is not an added diff line"
+
+    tokens = extract_finding_tokens(item)
+    if not tokens:
+        return False, "finding has no stable code tokens"
+
+    context_text = "\n".join(
+        added_lines[number]
+        for number in range(line - window, line + window + 1)
+        if number in added_lines
+    ).lower()
+    for token in tokens:
+        if token.lower() in context_text:
+            return True, f"matched token {token}"
+    return False, "finding tokens do not match the diff line context"
+
+
 def summary_body(report, max_findings):
     decision = report.get("decision") or {}
     counts = decision.get("severity_counts") or {}
@@ -256,7 +438,7 @@ def latest_mr_version(client, project_id, mr_iid):
     return max(versions, key=lambda item: int(item.get("id") or 0))
 
 
-def post_line_discussions(client, project_id, mr_iid, report, max_findings):
+def post_line_discussions(client, project_id, mr_iid, report, report_path, max_findings):
     version = latest_mr_version(client, project_id, mr_iid)
     if not version:
         print("skip GitLab line comments: MR version metadata not found")
@@ -269,6 +451,11 @@ def post_line_discussions(client, project_id, mr_iid, report, max_findings):
         print("skip GitLab line comments: MR position sha metadata is incomplete")
         return
 
+    added_lines_by_path = load_added_diff_lines(report, report_path)
+    if not added_lines_by_path:
+        print("skip GitLab line comments: diff added-line context not found")
+        return
+
     existing_markers = get_discussion_markers(client, project_id, mr_iid)
     findings = [
         item
@@ -279,9 +466,17 @@ def post_line_discussions(client, project_id, mr_iid, report, max_findings):
     ][:max_findings]
 
     created = 0
+    skipped_context = 0
     for item in findings:
         marker = marker_for(item).removeprefix("<!-- ").removesuffix(" -->")
         if marker in existing_markers:
+            continue
+        matched, reason = line_context_matches_finding(item, added_lines_by_path)
+        if not matched:
+            skipped_context += 1
+            print(
+                f"skip GitLab line comment for {item.get('path')}:{item.get('line')}: {reason}"
+            )
             continue
         payload = {
             "body": finding_body(item),
@@ -305,6 +500,8 @@ def post_line_discussions(client, project_id, mr_iid, report, max_findings):
                 file=sys.stderr,
             )
     print(f"created {created} GitLab line audit comments")
+    if skipped_context:
+        print(f"skipped {skipped_context} GitLab line audit comments because diff context did not match")
 
 
 def main():
@@ -333,7 +530,7 @@ def main():
     body = summary_body(report, args.max_findings)
     try:
         upsert_summary_note(client, project_id, mr_iid, body)
-        post_line_discussions(client, project_id, mr_iid, report, args.max_findings)
+        post_line_discussions(client, project_id, mr_iid, report, args.report, args.max_findings)
     except Exception as exc:
         print(f"warning: GitLab review comment posting failed: {exc}", file=sys.stderr)
         return 0
