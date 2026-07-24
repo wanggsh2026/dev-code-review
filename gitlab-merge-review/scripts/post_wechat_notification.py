@@ -7,15 +7,6 @@ import urllib.request
 from pathlib import Path
 
 
-BLOCKING_SEVERITIES = {"critical", "high"}
-DIMENSION_LABELS = {
-    "exception": "异常",
-    "security": "安全",
-    "performance": "性能",
-    "standard": "规范",
-}
-
-
 def load_json(path):
     with Path(path).open("r", encoding="utf-8-sig") as f:
         return json.load(f)
@@ -43,39 +34,6 @@ def mr_url(context):
     return first_non_empty(context.get("pipeline_url"), project_url)
 
 
-def severity_label(value):
-    text = str(value or "").lower()
-    return {
-        "critical": "Critical",
-        "high": "High",
-        "medium": "Medium",
-        "low": "Low",
-    }.get(text, text or "-")
-
-
-def dimension_label(item):
-    return DIMENSION_LABELS.get(str(item.get("dimension") or ""), item.get("category") or "-")
-
-
-def short_text(value, limit=90):
-    text = " ".join(str(value or "").split())
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "…"
-
-
-def sorted_findings(findings):
-    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    return sorted(
-        findings,
-        key=lambda item: (
-            rank.get(str(item.get("severity") or "").lower(), 9),
-            str(item.get("path") or ""),
-            int(item.get("line") or 0) if str(item.get("line") or "").isdigit() else 0,
-        ),
-    )
-
-
 def should_notify(status, mode):
     mode = str(mode or "always").lower()
     status = str(status or "").upper()
@@ -88,15 +46,10 @@ def should_notify(status, mode):
     return True
 
 
-def build_fun_message(report, max_findings):
+def build_fun_message(report):
     context = report.get("context") or {}
     decision = report.get("decision") or {}
     counts = decision.get("severity_counts") or {}
-    findings = [
-        item
-        for item in sorted_findings(report.get("findings") or [])
-        if str(item.get("severity") or "").lower() in BLOCKING_SEVERITIES
-    ][:max_findings]
 
     status = str(decision.get("status") or "-").upper()
     user = first_non_empty(context.get("trigger_user"), "匿名挑战者")
@@ -105,13 +58,15 @@ def build_fun_message(report, max_findings):
     link = mr_url(context)
 
     if status == "PASS":
-        title = f"恭喜这位牛马：{user}"
-        subtitle = "成功完成代码审计挑战，并且活着走出了 review 区。"
+        title = "代码审计小剧场收工"
+        subtitle = f"本次挑战者：{user}"
         result = "审计通过，可以合并"
+        hint = "这轮比较丝滑，去 GitLab 确认后继续流程。"
     else:
-        title = f"恭喜这位牛马：{user}"
-        subtitle = "成功触发代码审计挑战，不过本轮 Boss 没打过。"
+        title = "代码审计小剧场开演了"
+        subtitle = f"本次挑战者：{user}"
         result = "代码合并失败，审计未通过"
+        hint = "别慌，问题已经贴到 GitLab 了，按评论处理就行。"
 
     lines = [
         f"**{title}**",
@@ -128,24 +83,16 @@ def build_fun_message(report, max_findings):
             f"Medium {counts.get('medium', 0)} / "
             f"Low {counts.get('low', 0)}"
         ),
+        "",
+        hint,
     ]
-
-    if findings:
-        lines.extend(["", "**重点问题，先抓这几个：**"])
-        for idx, item in enumerate(findings, 1):
-            path = item.get("path") or "-"
-            line = item.get("line") or "-"
-            lines.append(
-                f"{idx}. `{path}:{line}` {severity_label(item.get('severity'))} / "
-                f"{dimension_label(item)}：{short_text(item.get('content'))}"
-            )
 
     if link:
         lines.extend(["", f"[打开 GitLab 审计现场]({link})"])
     return "\n".join(lines)
 
 
-def build_formal_message(report, max_findings):
+def build_formal_message(report):
     context = report.get("context") or {}
     decision = report.get("decision") or {}
     counts = decision.get("severity_counts") or {}
@@ -200,7 +147,6 @@ def post_wechat(webhook_url, content):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", required=True)
-    parser.add_argument("--max-findings", type=int, default=int(os.environ.get("WECHAT_NOTIFY_MAX_FINDINGS", "3")))
     args = parser.parse_args()
 
     webhook_url = os.environ.get("WECHAT_WEBHOOK_URL", "")
@@ -216,9 +162,9 @@ def main():
 
     style = os.environ.get("WECHAT_NOTIFY_STYLE", "fun").lower()
     if style == "formal":
-        content = build_formal_message(report, args.max_findings)
+        content = build_formal_message(report)
     else:
-        content = build_fun_message(report, args.max_findings)
+        content = build_fun_message(report)
 
     try:
         post_wechat(webhook_url, content)

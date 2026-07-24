@@ -22,7 +22,6 @@ dev_code_review:
     REVIEW_NOTIFY_WECHAT: "false"
     WECHAT_NOTIFY_ON: "always"
     WECHAT_NOTIFY_STYLE: "fun"
-    WECHAT_NOTIFY_MAX_FINDINGS: "3"
     GIT_STRATEGY: "fetch"
     GIT_DEPTH: "0"
   script:

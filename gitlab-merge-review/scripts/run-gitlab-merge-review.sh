@@ -171,8 +171,7 @@ fi
 if [[ "${REVIEW_NOTIFY_WECHAT:-false}" == "true" && -f "$WECHAT_NOTIFIER" && -f "$REPORT_PATH" ]]; then
   set +e
   python3 "$WECHAT_NOTIFIER" \
-    --report "$REPORT_PATH" \
-    --max-findings "${WECHAT_NOTIFY_MAX_FINDINGS:-3}"
+    --report "$REPORT_PATH"
   WECHAT_STATUS=$?
   set -e
   if [[ "$WECHAT_STATUS" -ne 0 ]]; then

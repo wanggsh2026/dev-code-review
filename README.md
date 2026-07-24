@@ -123,18 +123,22 @@ Optional GitLab CI/CD variables:
 | `REVIEW_NOTIFY_WECHAT` | set to `true` to send a WeCom group robot notification |
 | `WECHAT_NOTIFY_ON` | notification condition: `always`, `blocked`, or `pass`; default `always` |
 | `WECHAT_NOTIFY_STYLE` | notification tone: `fun` or `formal`; default `fun` |
-| `WECHAT_NOTIFY_MAX_FINDINGS` | maximum Critical/High findings shown in WeCom notification; default `3` |
 
 Comment posting is best-effort: if GitLab notes/discussions cannot be created, the job prints a warning but keeps the original audit result. Critical/High findings still make the job fail and block the merge when successful pipelines are required.
-WeCom notification is also best-effort. The default `fun` style uses lightweight group-chat copy:
+WeCom notification is also best-effort. It only sends a lightweight summary and links readers back to GitLab for line comments and full reports. The default `fun` style uses group-chat copy like:
 
 ```text
-恭喜这位牛马：gaoshan
-成功完成代码审计挑战，并且活着走出了 review 区。
+代码审计小剧场收工
+
+本次挑战者：gaoshan
 
 项目：dev-code-review-test
 MR：feature/v1.0 -> dev
 结果：审计通过，可以合并
+风险：Critical 0 / High 0 / Medium 0 / Low 0
+
+这轮比较丝滑，去 GitLab 确认后继续流程。
+打开 GitLab 审计现场
 ```
 
 For blocked audits, the result is sent as `代码合并失败，审计未通过`.
