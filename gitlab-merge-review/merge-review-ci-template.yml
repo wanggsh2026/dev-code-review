@@ -31,4 +31,3 @@ dev_code_review:
     expire_in: 14 days
     paths:
       - review-output/代码审计报告.md
-      - review-output/代码审计报告.docx

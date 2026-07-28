@@ -8,6 +8,32 @@ APP_ROOT="$(cd "$DEMO_DIR/.." && pwd)"
 ROOT_DIR="${REVIEW_WORKSPACE:-${CI_PROJECT_DIR:-$(pwd)}}"
 cd "$ROOT_DIR"
 
+TIMING_TOTAL_START="$(date +%s)"
+TIMING_STAGE_NAME=""
+TIMING_STAGE_START=0
+
+timing_start() {
+  TIMING_STAGE_NAME="$1"
+  TIMING_STAGE_START="$(date +%s)"
+  echo "[dev-code-review][timing] start ${TIMING_STAGE_NAME}"
+}
+
+timing_end() {
+  local status="${1:-0}"
+  local ended_at elapsed
+  ended_at="$(date +%s)"
+  elapsed=$((ended_at - TIMING_STAGE_START))
+  echo "[dev-code-review][timing] end ${TIMING_STAGE_NAME}: ${elapsed}s status=${status}"
+}
+
+timing_total_end() {
+  local status="${1:-0}"
+  local ended_at elapsed
+  ended_at="$(date +%s)"
+  elapsed=$((ended_at - TIMING_TOTAL_START))
+  echo "[dev-code-review][timing] total: ${elapsed}s status=${status}"
+}
+
 OUTPUT_DIR="${REVIEW_OUTPUT_DIR:-review-output}"
 CONFIG_PATH="${REVIEW_CONFIG:-$DEMO_DIR/review-config.example.json}"
 EVALUATOR_PATH="${REVIEW_EVALUATOR:-$SCRIPT_DIR/evaluate_review.py}"
@@ -25,9 +51,12 @@ SOURCE_BRANCH="${REVIEW_SOURCE_BRANCH:-${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$(
 BASE_COMMIT="${REVIEW_BASE_COMMIT:-${GITLAB_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}}}"
 
 if [[ -n "$TARGET_BRANCH" ]]; then
+  timing_start "fetch target branch"
   git fetch origin "$TARGET_BRANCH" --depth="${GIT_DEPTH:-100}" >/dev/null 2>&1 || git fetch origin "$TARGET_BRANCH" >/dev/null 2>&1 || true
+  timing_end 0
 fi
 
+timing_start "resolve base commit"
 if [[ -z "$BASE_COMMIT" && "$TARGET_BRANCH" != "unknown" ]]; then
   if git rev-parse "origin/${TARGET_BRANCH}" >/dev/null 2>&1; then
     BASE_COMMIT="$(git merge-base "$TO_COMMIT" "origin/${TARGET_BRANCH}" || true)"
@@ -41,7 +70,9 @@ if [[ -z "$BASE_COMMIT" ]]; then
     BASE_COMMIT="$(git rev-parse "${TO_COMMIT}~1")"
   fi
 fi
+timing_end 0
 
+timing_start "collect changed files and diff"
 if [[ -n "$BASE_COMMIT" ]]; then
   git diff --name-only "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt"
   git diff --no-ext-diff --unified=80 "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
@@ -49,7 +80,9 @@ else
   git show --name-only --format='' "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt" || true
   git show --format=medium --no-ext-diff --unified=80 "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
 fi
+timing_end 0
 
+timing_start "filter review scope"
 if [[ -f "$SCOPE_FILTER" ]]; then
   python3 "$SCOPE_FILTER" \
     --config "$CONFIG_PATH" \
@@ -62,7 +95,9 @@ else
   cp "$OUTPUT_DIR/changed-files.raw.txt" "$OUTPUT_DIR/changed-files.txt"
   cp "$OUTPUT_DIR/diff.raw.patch" "$OUTPUT_DIR/diff.patch"
 fi
+timing_end 0
 
+timing_start "write review context"
 cat > "$OUTPUT_DIR/review-context.json" <<JSON
 {
   "project_id": "${CI_PROJECT_ID:-${GITLAB_PROJECT_ID:-}}",
@@ -82,8 +117,10 @@ cat > "$OUTPUT_DIR/review-context.json" <<JSON
   "trigger_user": "${GITLAB_USER_LOGIN:-${GITLAB_USER_NAME:-}}"
 }
 JSON
+timing_end 0
 
 GITLAB_CONTEXT="$OUTPUT_DIR/gitlab-context.json"
+timing_start "collect GitLab context"
 if [[ -f "$GITLAB_CONTEXT_SCRIPT" ]]; then
   set +e
   python3 "$GITLAB_CONTEXT_SCRIPT" \
@@ -98,7 +135,9 @@ if [[ -f "$GITLAB_CONTEXT_SCRIPT" ]]; then
 else
   echo '{"status":"skipped","errors":["gitlab context script not found"]}' > "$GITLAB_CONTEXT"
 fi
+timing_end "${GITLAB_CONTEXT_STATUS:-0}"
 
+timing_start "write review background"
 cat > "$OUTPUT_DIR/review-background.md" <<EOF
 请对 GitLab Merge Request 合并到 ${TARGET_BRANCH} 分支的代码差异进行代码审计。
 
@@ -125,11 +164,13 @@ Review scope:
 - Ignore dependency directories, build artifacts, generated reports, documents, images, media files, and lock files.
 - Business source files such as Java, frontend source, scripts, SQL, and runtime configuration files remain in scope.
 EOF
+timing_end 0
 
 OCR_STATUS=0
 OCR_STDERR="$OUTPUT_DIR/ocr-stderr.log"
 OCR_RESULT="$OUTPUT_DIR/ocr-result.json"
 
+timing_start "ocr review"
 if [[ ! -s "$OUTPUT_DIR/changed-files.txt" ]]; then
   OCR_STATUS=0
   echo "no reviewable files after scope filtering; skipped ocr review" > "$OCR_STDERR"
@@ -155,10 +196,13 @@ else
   set -e
 fi
 
+timing_end "$OCR_STATUS"
+
 REPORT_PATH="$OUTPUT_DIR/review-report.json"
 REPORT_MD="${REVIEW_MD:-$OUTPUT_DIR/代码审计报告.md}"
 REPORT_DOCX="${REVIEW_DOCX:-$OUTPUT_DIR/代码审计报告.docx}"
 
+timing_start "evaluate review report"
 set +e
 python3 "$EVALUATOR_PATH" \
   --config "$CONFIG_PATH" \
@@ -172,7 +216,9 @@ python3 "$EVALUATOR_PATH" \
   --markdown "$REPORT_MD"
 EVAL_STATUS=$?
 set -e
+timing_end "$EVAL_STATUS"
 
+timing_start "generate docx report"
 if [[ -f "$DOCX_GENERATOR" && -f "$REPORT_PATH" ]]; then
   python3 "$DOCX_GENERATOR" \
     --report "$REPORT_PATH" \
@@ -181,7 +227,9 @@ if [[ -f "$DOCX_GENERATOR" && -f "$REPORT_PATH" ]]; then
 else
   echo "docx report skipped: generator/report not found" >&2
 fi
+timing_end 0
 
+timing_start "post GitLab review comments"
 if [[ "${REVIEW_POST_COMMENTS:-false}" == "true" && -f "$COMMENT_POSTER" && -f "$REPORT_PATH" ]]; then
   set +e
   python3 "$COMMENT_POSTER" \
@@ -193,7 +241,9 @@ if [[ "${REVIEW_POST_COMMENTS:-false}" == "true" && -f "$COMMENT_POSTER" && -f "
     echo "GitLab review comment posting failed with exit code $COMMENT_STATUS; continuing without changing review result" >&2
   fi
 fi
+timing_end "${COMMENT_STATUS:-0}"
 
+timing_start "send WeCom notification"
 if [[ "${REVIEW_NOTIFY_WECHAT:-false}" == "true" && -f "$WECHAT_NOTIFIER" && -f "$REPORT_PATH" ]]; then
   set +e
   python3 "$WECHAT_NOTIFIER" \
@@ -204,5 +254,7 @@ if [[ "${REVIEW_NOTIFY_WECHAT:-false}" == "true" && -f "$WECHAT_NOTIFIER" && -f 
     echo "WeCom notification failed with exit code $WECHAT_STATUS; continuing without changing review result" >&2
   fi
 fi
+timing_end "${WECHAT_STATUS:-0}"
 
+timing_total_end "$EVAL_STATUS"
 exit "$EVAL_STATUS"

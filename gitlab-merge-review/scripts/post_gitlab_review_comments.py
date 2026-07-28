@@ -350,9 +350,9 @@ def summary_body(report, max_findings):
         ),
     ]
     if pipeline_url:
-        lines.append(f"- 完整报告：请在 [本次 Pipeline Artifacts]({pipeline_url}) 下载 `代码审计报告.md` / `代码审计报告.docx`")
+        lines.append(f"- 完整报告：请在 [本次 Pipeline Artifacts]({pipeline_url}) 下载 `代码审计报告.md`")
     else:
-        lines.append("- 完整报告：请在本次 Job Artifacts 下载 `代码审计报告.md` / `代码审计报告.docx`")
+        lines.append("- 完整报告：请在本次 Job Artifacts 下载 `代码审计报告.md`")
 
     if decision.get("blocking_reasons"):
         lines.extend(["", "### 阻断原因"])

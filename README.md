@@ -18,7 +18,6 @@ The workflow writes diagnostic files to `review-output/`, but the GitLab CI temp
 | File | Purpose |
 | --- | --- |
 | `代码审计报告.md` | Markdown report, suitable for GitLab preview |
-| `代码审计报告.docx` | Word report, suitable for formal audit archiving |
 
 When `REVIEW_POST_COMMENTS=true`, the job also posts a concise audit summary to the merge request and tries to add Critical/High findings as GitLab diff line comments. A line comment is only posted when the finding's file/line and code identifiers match the actual added diff context; otherwise the finding stays in the MR summary and report instead of being attached to a misleading line.
 When `REVIEW_NOTIFY_WECHAT=true`, the job sends a lightweight WeCom group robot notification after the audit report is generated.
@@ -52,7 +51,7 @@ The exact rules are in `gitlab-merge-review/review-config.example.json` under `r
 
 ## Report Template
 
-The workflow generates both `代码审计报告.md` and `代码审计报告.docx`. The Word report uses `templates/ai-agent-code-review-template.docx` by default. The generated reports follow the attached report template and include:
+The workflow uploads `代码审计报告.md` as the GitLab job artifact. The generated report follows the attached report template and includes:
 
 1. 基础信息
 2. Review结论
