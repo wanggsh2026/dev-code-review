@@ -34,6 +34,93 @@ timing_total_end() {
   echo "[dev-code-review][timing] total: ${elapsed}s status=${status}"
 }
 
+config_log() {
+  echo "[dev-code-review][config] $*"
+}
+
+flow_log() {
+  echo "[dev-code-review][flow] $*"
+}
+
+env_value() {
+  local name="$1"
+  local default_value="${2:-<empty>}"
+  local value="${!name-}"
+  if [[ -n "$value" ]]; then
+    printf '%s' "$value"
+  else
+    printf '%s' "$default_value"
+  fi
+}
+
+env_secret_state() {
+  local name="$1"
+  local value="${!name-}"
+  if [[ -n "$value" ]]; then
+    printf '<set, masked>'
+  else
+    printf '<empty>'
+  fi
+}
+
+file_state() {
+  local path="$1"
+  if [[ -f "$path" ]]; then
+    printf 'exists'
+  else
+    printf 'missing'
+  fi
+}
+
+short_ref() {
+  local value="${1:-}"
+  if [[ -z "$value" ]]; then
+    printf '<empty>'
+  elif (( ${#value} > 12 )); then
+    printf '%s...' "${value:0:12}"
+  else
+    printf '%s' "$value"
+  fi
+}
+
+lower_value() {
+  printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'
+}
+
+is_truthy() {
+  case "$(lower_value "${1:-}")" in
+    true|1|yes|y|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_falsey() {
+  case "$(lower_value "${1:-}")" in
+    false|0|no|n|off) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+resolve_workspace_path() {
+  local path="$1"
+  if [[ -z "$path" ]]; then
+    printf ''
+  elif [[ "$path" == /* ]]; then
+    printf '%s' "$path"
+  else
+    printf '%s/%s' "$ROOT_DIR" "$path"
+  fi
+}
+
+file_size_bytes() {
+  local path="$1"
+  if [[ -f "$path" ]]; then
+    wc -c < "$path" | tr -d '[:space:]'
+  else
+    printf '0'
+  fi
+}
+
 OUTPUT_DIR="${REVIEW_OUTPUT_DIR:-review-output}"
 CONFIG_PATH="${REVIEW_CONFIG:-$DEMO_DIR/review-config.example.json}"
 EVALUATOR_PATH="${REVIEW_EVALUATOR:-$SCRIPT_DIR/evaluate_review.py}"
@@ -50,7 +137,90 @@ TO_COMMIT="${REVIEW_TO_COMMIT:-${CI_COMMIT_SHA:-$(git rev-parse HEAD)}}"
 SOURCE_BRANCH="${REVIEW_SOURCE_BRANCH:-${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)}}"
 BASE_COMMIT="${REVIEW_BASE_COMMIT:-${GITLAB_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}}}"
 
+POST_COMMENTS="$(lower_value "${REVIEW_POST_COMMENTS:-false}")"
+COMMENT_MAX_FINDINGS="${REVIEW_COMMENT_MAX_FINDINGS:-10}"
+NOTIFY_WECHAT="$(lower_value "${REVIEW_NOTIFY_WECHAT:-false}")"
+WECHAT_ON="$(lower_value "${WECHAT_NOTIFY_ON:-always}")"
+WECHAT_STYLE="$(lower_value "${WECHAT_NOTIFY_STYLE:-fun}")"
+WECHAT_MAX_FINDINGS="${WECHAT_NOTIFY_MAX_FINDINGS:-3}"
+REVIEW_ENABLED_VALUE="$(lower_value "${REVIEW_ENABLED:-true}")"
+SCOPE_MODE="$(lower_value "${REVIEW_SCOPE_MODE:-changed}")"
+RULES_MODE="$(lower_value "${REVIEW_RULES_MODE:-append}")"
+USE_PROJECT_RULES="$(lower_value "${REVIEW_USE_PROJECT_RULES:-auto}")"
+PROJECT_RULES_FILE="${REVIEW_PROJECT_RULES_FILE:-.dev-code-review/review-rules.md}"
+PROJECT_RULES_MAX_BYTES="${REVIEW_PROJECT_RULES_MAX_BYTES:-20000}"
+PROJECT_RULES_PATH="$(resolve_workspace_path "$PROJECT_RULES_FILE")"
+
+case "$SCOPE_MODE" in
+  changed|full|none|disabled) ;;
+  *)
+    flow_log "invalid REVIEW_SCOPE_MODE=$SCOPE_MODE, fallback to changed"
+    SCOPE_MODE="changed"
+    ;;
+esac
+
+case "$RULES_MODE" in
+  append|override) ;;
+  *)
+    flow_log "invalid REVIEW_RULES_MODE=$RULES_MODE, fallback to append"
+    RULES_MODE="append"
+    ;;
+esac
+
+case "$USE_PROJECT_RULES" in
+  auto|true|false|1|0|yes|no|on|off|y|n) ;;
+  *)
+    flow_log "invalid REVIEW_USE_PROJECT_RULES=$USE_PROJECT_RULES, fallback to auto"
+    USE_PROJECT_RULES="auto"
+    ;;
+esac
+
+if ! [[ "$PROJECT_RULES_MAX_BYTES" =~ ^[0-9]+$ ]]; then
+  flow_log "invalid REVIEW_PROJECT_RULES_MAX_BYTES=$PROJECT_RULES_MAX_BYTES, fallback to 20000"
+  PROJECT_RULES_MAX_BYTES="20000"
+fi
+
+if is_falsey "$REVIEW_ENABLED_VALUE"; then
+  flow_log "REVIEW_ENABLED=$REVIEW_ENABLED_VALUE, force REVIEW_SCOPE_MODE=disabled"
+  SCOPE_MODE="disabled"
+fi
+
+config_log "effective environment values:"
+config_log "  REVIEW_WORKSPACE=$ROOT_DIR"
+config_log "  REVIEW_OUTPUT_DIR=$OUTPUT_DIR"
+config_log "  REVIEW_CONFIG=$CONFIG_PATH ($(file_state "$CONFIG_PATH"))"
+config_log "  REVIEW_EVALUATOR=$EVALUATOR_PATH ($(file_state "$EVALUATOR_PATH"))"
+config_log "  REVIEW_SCOPE_FILTER=$SCOPE_FILTER ($(file_state "$SCOPE_FILTER"))"
+config_log "  REVIEW_GITLAB_CONTEXT_SCRIPT=$GITLAB_CONTEXT_SCRIPT ($(file_state "$GITLAB_CONTEXT_SCRIPT"))"
+config_log "  REVIEW_DOCX_GENERATOR=$DOCX_GENERATOR ($(file_state "$DOCX_GENERATOR"))"
+config_log "  REVIEW_DOCX_TEMPLATE=$DOCX_TEMPLATE ($(file_state "$DOCX_TEMPLATE"))"
+config_log "  REVIEW_COMMENT_POSTER=$COMMENT_POSTER ($(file_state "$COMMENT_POSTER"))"
+config_log "  REVIEW_WECHAT_NOTIFIER=$WECHAT_NOTIFIER ($(file_state "$WECHAT_NOTIFIER"))"
+config_log "  REVIEW_ENABLED=$REVIEW_ENABLED_VALUE (false disables OCR review and produces a pass report)"
+config_log "  REVIEW_SCOPE_MODE=$SCOPE_MODE (changed=MR diff, full=full repository snapshot, none/disabled=skip OCR review)"
+config_log "  REVIEW_USE_PROJECT_RULES=$USE_PROJECT_RULES (auto loads existing project rules, true tries to load project rules, false skips them)"
+config_log "  REVIEW_PROJECT_RULES_FILE=$PROJECT_RULES_FILE (resolved=$PROJECT_RULES_PATH, file=$(file_state "$PROJECT_RULES_PATH"))"
+config_log "  REVIEW_PROJECT_RULES_MAX_BYTES=$PROJECT_RULES_MAX_BYTES"
+config_log "  REVIEW_RULES_MODE=$RULES_MODE (append=default rules plus project rules, override=project rules replace default audit rules)"
+config_log "  REVIEW_POST_COMMENTS=$POST_COMMENTS"
+config_log "  REVIEW_COMMENT_MAX_FINDINGS=$COMMENT_MAX_FINDINGS"
+config_log "  GITLAB_TOKEN=$(env_secret_state GITLAB_TOKEN)"
+config_log "  GITLAB_PRIVATE_TOKEN=$(env_secret_state GITLAB_PRIVATE_TOKEN)"
+config_log "  GITLAB_API_TOKEN=$(env_secret_state GITLAB_API_TOKEN)"
+config_log "  CI_JOB_TOKEN=$(env_secret_state CI_JOB_TOKEN)"
+config_log "  REVIEW_NOTIFY_WECHAT=$NOTIFY_WECHAT"
+config_log "  WECHAT_WEBHOOK_URL=$(env_secret_state WECHAT_WEBHOOK_URL)"
+config_log "  WECHAT_NOTIFY_ON=$WECHAT_ON"
+config_log "  WECHAT_NOTIFY_STYLE=$WECHAT_STYLE"
+config_log "  WECHAT_NOTIFY_MAX_FINDINGS=$WECHAT_MAX_FINDINGS"
+config_log "  OCR_LLM_URL=$(env_value OCR_LLM_URL)"
+config_log "  OCR_LLM_MODEL=$(env_value OCR_LLM_MODEL)"
+config_log "  OCR_LLM_TOKEN=$(env_secret_state OCR_LLM_TOKEN)"
+config_log "  GIT_DEPTH=$(env_value GIT_DEPTH 100)"
+config_log "derived review refs: source=$SOURCE_BRANCH target=$TARGET_BRANCH base=$(short_ref "$BASE_COMMIT") to=$(short_ref "$TO_COMMIT")"
+
 if [[ -n "$TARGET_BRANCH" ]]; then
+  flow_log "fetch target branch: target=$TARGET_BRANCH depth=$(env_value GIT_DEPTH 100)"
   timing_start "fetch target branch"
   git fetch origin "$TARGET_BRANCH" --depth="${GIT_DEPTH:-100}" >/dev/null 2>&1 || git fetch origin "$TARGET_BRANCH" >/dev/null 2>&1 || true
   timing_end 0
@@ -71,19 +241,52 @@ if [[ -z "$BASE_COMMIT" ]]; then
   fi
 fi
 timing_end 0
+flow_log "base commit resolved: base=$(short_ref "$BASE_COMMIT") to=$(short_ref "$TO_COMMIT")"
+
+OCR_FROM_REF="$BASE_COMMIT"
 
 timing_start "collect changed files and diff"
-if [[ -n "$BASE_COMMIT" ]]; then
-  git diff --name-only "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt"
-  git diff --no-ext-diff --unified=80 "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
-else
-  git show --name-only --format='' "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt" || true
-  git show --format=medium --no-ext-diff --unified=80 "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
-fi
+case "$SCOPE_MODE" in
+  none|disabled)
+    flow_log "collect changed files and diff: skipped because REVIEW_SCOPE_MODE=$SCOPE_MODE"
+    : > "$OUTPUT_DIR/changed-files.raw.txt"
+    : > "$OUTPUT_DIR/diff.raw.patch"
+    ;;
+  full)
+    flow_log "collect changed files and diff: REVIEW_SCOPE_MODE=full, using full repository snapshot at to commit"
+    EMPTY_TREE="$(git hash-object -t tree /dev/null)"
+    OCR_FROM_REF="$EMPTY_TREE"
+    git ls-tree -r --name-only "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt"
+    git diff --no-ext-diff --unified=80 "$EMPTY_TREE" "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
+    ;;
+  changed)
+    if [[ -n "$BASE_COMMIT" ]]; then
+      flow_log "collect changed files and diff: REVIEW_SCOPE_MODE=changed, using git diff base..to"
+      git diff --name-only "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt"
+      git diff --no-ext-diff --unified=80 "$BASE_COMMIT" "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
+    else
+      flow_log "collect changed files and diff: base commit empty, falling back to git show"
+      git show --name-only --format='' "$TO_COMMIT" > "$OUTPUT_DIR/changed-files.raw.txt" || true
+      git show --format=medium --no-ext-diff --unified=80 "$TO_COMMIT" > "$OUTPUT_DIR/diff.raw.patch" || true
+    fi
+    ;;
+esac
 timing_end 0
 
 timing_start "filter review scope"
-if [[ -f "$SCOPE_FILTER" ]]; then
+if [[ "$SCOPE_MODE" == "none" || "$SCOPE_MODE" == "disabled" ]]; then
+  flow_log "filter review scope: skipped because REVIEW_SCOPE_MODE=$SCOPE_MODE"
+  : > "$OUTPUT_DIR/changed-files.txt"
+  : > "$OUTPUT_DIR/diff.patch"
+  cat > "$OUTPUT_DIR/review-scope.json" <<JSON
+{
+  "mode": "${SCOPE_MODE}",
+  "reviewed": [],
+  "skipped": []
+}
+JSON
+elif [[ -f "$SCOPE_FILTER" ]]; then
+  flow_log "filter review scope: run REVIEW_SCOPE_FILTER=$SCOPE_FILTER with config=$CONFIG_PATH"
   python3 "$SCOPE_FILTER" \
     --config "$CONFIG_PATH" \
     --changed-files "$OUTPUT_DIR/changed-files.raw.txt" \
@@ -92,6 +295,7 @@ if [[ -f "$SCOPE_FILTER" ]]; then
     --output-diff "$OUTPUT_DIR/diff.patch" \
     --summary "$OUTPUT_DIR/review-scope.json"
 else
+  flow_log "filter review scope: REVIEW_SCOPE_FILTER missing, use raw changed files and raw diff"
   cp "$OUTPUT_DIR/changed-files.raw.txt" "$OUTPUT_DIR/changed-files.txt"
   cp "$OUTPUT_DIR/diff.raw.patch" "$OUTPUT_DIR/diff.patch"
 fi
@@ -137,30 +341,97 @@ else
 fi
 timing_end "${GITLAB_CONTEXT_STATUS:-0}"
 
+PROJECT_RULES_OUTPUT="$OUTPUT_DIR/project-review-rules.md"
+PROJECT_RULES_LOADED="false"
+
+timing_start "load project review rules"
+SHOULD_LOAD_PROJECT_RULES="false"
+if [[ "$USE_PROJECT_RULES" == "auto" ]]; then
+  if [[ -s "$PROJECT_RULES_PATH" ]]; then
+    SHOULD_LOAD_PROJECT_RULES="true"
+  fi
+elif is_truthy "$USE_PROJECT_RULES"; then
+  SHOULD_LOAD_PROJECT_RULES="true"
+elif is_falsey "$USE_PROJECT_RULES"; then
+  SHOULD_LOAD_PROJECT_RULES="false"
+fi
+
+if [[ "$SHOULD_LOAD_PROJECT_RULES" == "true" ]]; then
+  if [[ ! -f "$PROJECT_RULES_PATH" ]]; then
+    flow_log "project review rules: requested but file is missing: $PROJECT_RULES_PATH"
+  elif [[ ! -s "$PROJECT_RULES_PATH" ]]; then
+    flow_log "project review rules: requested but file is empty: $PROJECT_RULES_PATH"
+  else
+    PROJECT_RULES_BYTES="$(file_size_bytes "$PROJECT_RULES_PATH")"
+    if (( PROJECT_RULES_BYTES > PROJECT_RULES_MAX_BYTES )); then
+      flow_log "project review rules: skipped because file size ${PROJECT_RULES_BYTES} bytes exceeds REVIEW_PROJECT_RULES_MAX_BYTES=$PROJECT_RULES_MAX_BYTES"
+    else
+      cp "$PROJECT_RULES_PATH" "$PROJECT_RULES_OUTPUT"
+      PROJECT_RULES_LOADED="true"
+      flow_log "project review rules: loaded $PROJECT_RULES_FILE (${PROJECT_RULES_BYTES} bytes), REVIEW_RULES_MODE=$RULES_MODE"
+    fi
+  fi
+else
+  flow_log "project review rules: skipped because REVIEW_USE_PROJECT_RULES=$USE_PROJECT_RULES"
+fi
+timing_end 0
+
 timing_start "write review background"
-cat > "$OUTPUT_DIR/review-background.md" <<EOF
-请对 GitLab Merge Request 合并到 ${TARGET_BRANCH} 分支的代码差异进行代码审计。
+if [[ "$PROJECT_RULES_LOADED" == "true" && "$RULES_MODE" == "override" ]]; then
+  flow_log "write review background: REVIEW_RULES_MODE=override, project rules replace default audit rules"
+  cat > "$OUTPUT_DIR/review-background.md" <<EOF
+Review this GitLab Merge Request before it is merged into target branch ${TARGET_BRANCH}.
 
-输出语言要求：
-- 所有 finding 的 category、content、suggestion 必须使用中文。
-- 如果模型内部先用英文分析，请在最终 JSON comments 中转换为中文。
-- 保留必要的代码标识符、方法名、类名、字段名和异常类型原文。
+Output requirements:
+- All finding category, content, and suggestion fields must be written in Simplified Chinese.
+- Keep code identifiers, method names, class names, field names, SQL fragments, and exception names unchanged.
+- Output must remain parseable by open-code-review as JSON comments.
+- Each finding should include severity, category, path, line, content, and suggestion when possible.
 
-重点关注并输出以下四类核心问题：
-1. 异常：空指针、边界条件、状态流转、错误处理、兼容性、逻辑缺陷。
-2. 安全：鉴权、越权、注入、敏感信息泄露、日志泄密、依赖风险。
-3. 性能：慢 SQL、N+1 查询、缓存失效、循环/批量处理、内存和并发资源。
-4. 规范：命名、可维护性、重复代码、测试缺失、接口契约、配置约定。
+REVIEW_RULES_MODE=override is enabled.
+Use the following project review rules as the primary audit standard. The default dev-code-review audit dimensions are not used as mandatory rules in this run.
 
-CSV 是外部安全合规审查域，不是逗号分隔文件格式检查。若本次变更命中 CSV 安全合规审查范围，请记录为 CSV 安全合规 finding；若已接入 CSV 部门接口/工具，应以其返回的审查结论、流水号或外部报告链接为准。
-
-如果发现 critical 或 high 级别问题，CI 会失败并阻断 merge。输出必须能被解析为 OCR JSON comments，每条 finding 尽量包含 severity、category、path、line、content、suggestion。
+Project review rules:
 EOF
+  cat "$PROJECT_RULES_OUTPUT" >> "$OUTPUT_DIR/review-background.md"
+else
+  flow_log "write review background: using default audit rules"
+  cat > "$OUTPUT_DIR/review-background.md" <<EOF
+Review this GitLab Merge Request before it is merged into target branch ${TARGET_BRANCH}.
+
+Output requirements:
+- All finding category, content, and suggestion fields must be written in Simplified Chinese.
+- Keep code identifiers, method names, class names, field names, SQL fragments, and exception names unchanged.
+- Output must remain parseable by open-code-review as JSON comments.
+- Each finding should include severity, category, path, line, content, and suggestion when possible.
+
+Default dev-code-review audit dimensions:
+1. Exception handling: null dereference, boundary conditions, state transitions, error handling, compatibility, and logic defects.
+2. Security: authentication, authorization, injection, sensitive information leakage, secret leakage in logs, dependency risk, path traversal, SSRF, XSS, command injection, and unsafe file handling.
+3. Performance: slow SQL, N+1 queries, cache misuse, loop and batch processing issues, memory pressure, concurrency/resource risks, and timeout control.
+4. Code standard: naming, layering, maintainability, duplicated code, missing or mismatched tests, API contracts, configuration conventions, logging conventions, and error response contracts.
+5. CSV security compliance: this is an external security compliance review scope, not a generic CSV file format check. If this MR touches CSV security compliance scope, record whether the CSV department interface/tool was called and whether its Critical/High findings should block the merge.
+
+Critical or High findings block the merge. Medium and Low findings are recorded for follow-up unless project policy says otherwise.
+EOF
+  if [[ "$PROJECT_RULES_LOADED" == "true" ]]; then
+    flow_log "write review background: append project review rules to default audit rules"
+    cat >> "$OUTPUT_DIR/review-background.md" <<EOF
+
+Project-specific supplemental review rules:
+EOF
+    cat "$PROJECT_RULES_OUTPUT" >> "$OUTPUT_DIR/review-background.md"
+  fi
+fi
 
 cat >> "$OUTPUT_DIR/review-background.md" <<EOF
 
 Review scope:
+- REVIEW_SCOPE_MODE=${SCOPE_MODE}.
 - Only review files kept in changed-files.txt and diff.patch after scope filtering.
+- changed: review the GitLab MR diff between base commit and target commit.
+- full: review the full repository snapshot at target commit by comparing it with an empty tree.
+- none/disabled: skip OCR review and produce an empty finding set.
 - Ignore dependency directories, build artifacts, generated reports, documents, images, media files, and lock files.
 - Business source files such as Java, frontend source, scripts, SQL, and runtime configuration files remain in scope.
 EOF
@@ -172,21 +443,25 @@ OCR_RESULT="$OUTPUT_DIR/ocr-result.json"
 
 timing_start "ocr review"
 if [[ ! -s "$OUTPUT_DIR/changed-files.txt" ]]; then
+  flow_log "ocr review: skipped because changed-files.txt is empty after scope filtering"
   OCR_STATUS=0
   echo "no reviewable files after scope filtering; skipped ocr review" > "$OCR_STDERR"
   echo '{"comments":[]}' > "$OCR_RESULT"
 elif ! command -v ocr >/dev/null 2>&1; then
+  flow_log "ocr review: skipped because ocr command is not available"
   OCR_STATUS=127
   echo "ocr command not found in review image or GitLab runner" > "$OCR_STDERR"
   echo '{"comments":[]}' > "$OCR_RESULT"
-elif [[ -z "$BASE_COMMIT" ]]; then
+elif [[ -z "$OCR_FROM_REF" ]]; then
+  flow_log "ocr review: skipped because OCR from ref is empty"
   OCR_STATUS=2
-  echo "base commit is empty; cannot run dev merge diff review" > "$OCR_STDERR"
+  echo "OCR from ref is empty; cannot run merge diff review" > "$OCR_STDERR"
   echo '{"comments":[]}' > "$OCR_RESULT"
 else
+  flow_log "ocr review: running ocr review from $(short_ref "$OCR_FROM_REF") to $(short_ref "$TO_COMMIT")"
   set +e
   ocr review \
-    --from "$BASE_COMMIT" \
+    --from "$OCR_FROM_REF" \
     --to "$TO_COMMIT" \
     --format json \
     --audience agent \
@@ -230,21 +505,29 @@ fi
 timing_end 0
 
 timing_start "post GitLab review comments"
-if [[ "${REVIEW_POST_COMMENTS:-false}" == "true" && -f "$COMMENT_POSTER" && -f "$REPORT_PATH" ]]; then
+flow_log "post GitLab review comments decision: REVIEW_POST_COMMENTS=$POST_COMMENTS, poster=$(file_state "$COMMENT_POSTER"), report=$(file_state "$REPORT_PATH"), max_findings=$COMMENT_MAX_FINDINGS"
+if [[ "$POST_COMMENTS" == "true" && -f "$COMMENT_POSTER" && -f "$REPORT_PATH" ]]; then
+  flow_log "post GitLab review comments: running"
   set +e
   python3 "$COMMENT_POSTER" \
     --report "$REPORT_PATH" \
-    --max-findings "${REVIEW_COMMENT_MAX_FINDINGS:-10}"
+    --max-findings "$COMMENT_MAX_FINDINGS"
   COMMENT_STATUS=$?
   set -e
   if [[ "$COMMENT_STATUS" -ne 0 ]]; then
     echo "GitLab review comment posting failed with exit code $COMMENT_STATUS; continuing without changing review result" >&2
   fi
+else
+  [[ "$POST_COMMENTS" == "true" ]] || flow_log "post GitLab review comments: skipped because REVIEW_POST_COMMENTS is not true"
+  [[ -f "$COMMENT_POSTER" ]] || flow_log "post GitLab review comments: skipped because REVIEW_COMMENT_POSTER is missing"
+  [[ -f "$REPORT_PATH" ]] || flow_log "post GitLab review comments: skipped because review report is missing"
 fi
 timing_end "${COMMENT_STATUS:-0}"
 
 timing_start "send WeCom notification"
-if [[ "${REVIEW_NOTIFY_WECHAT:-false}" == "true" && -f "$WECHAT_NOTIFIER" && -f "$REPORT_PATH" ]]; then
+flow_log "send WeCom notification decision: REVIEW_NOTIFY_WECHAT=$NOTIFY_WECHAT, notifier=$(file_state "$WECHAT_NOTIFIER"), report=$(file_state "$REPORT_PATH"), webhook=$(env_secret_state WECHAT_WEBHOOK_URL), notify_on=$WECHAT_ON, style=$WECHAT_STYLE"
+if [[ "$NOTIFY_WECHAT" == "true" && -f "$WECHAT_NOTIFIER" && -f "$REPORT_PATH" ]]; then
+  flow_log "send WeCom notification: running"
   set +e
   python3 "$WECHAT_NOTIFIER" \
     --report "$REPORT_PATH"
@@ -253,6 +536,10 @@ if [[ "${REVIEW_NOTIFY_WECHAT:-false}" == "true" && -f "$WECHAT_NOTIFIER" && -f 
   if [[ "$WECHAT_STATUS" -ne 0 ]]; then
     echo "WeCom notification failed with exit code $WECHAT_STATUS; continuing without changing review result" >&2
   fi
+else
+  [[ "$NOTIFY_WECHAT" == "true" ]] || flow_log "send WeCom notification: skipped because REVIEW_NOTIFY_WECHAT is not true"
+  [[ -f "$WECHAT_NOTIFIER" ]] || flow_log "send WeCom notification: skipped because REVIEW_WECHAT_NOTIFIER is missing"
+  [[ -f "$REPORT_PATH" ]] || flow_log "send WeCom notification: skipped because review report is missing"
 fi
 timing_end "${WECHAT_STATUS:-0}"
 
