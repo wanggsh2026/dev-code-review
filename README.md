@@ -127,6 +127,7 @@ Required GitLab CI/CD variables:
 | `OCR_LLM_MODEL` | model name |
 | `GITLAB_TOKEN` | optional; required when `REVIEW_POST_COMMENTS=true`; use a GitLab personal/project access token with permission to create MR notes |
 | `WECHAT_WEBHOOK_URL` | optional; required when `REVIEW_NOTIFY_WECHAT=true`; WeCom group robot webhook URL |
+| `REVIEW_CALLBACK_TOKEN` | optional; platform API token when `REVIEW_CALLBACK_URL` requires authentication; configure it as a masked variable |
 
 Optional GitLab CI/CD variables:
 
@@ -138,6 +139,10 @@ Optional GitLab CI/CD variables:
 | `WECHAT_NOTIFY_ON` | notification condition: `always`, `blocked`, or `pass`; default `always` |
 | `WECHAT_NOTIFY_STYLE` | notification tone: `fun` or `formal`; default `fun` |
 | `REVIEW_SCOPE_FILTER` | optional path to a custom scope-filter script; default uses `gitlab-merge-review/scripts/filter_review_scope.py` |
+| `REVIEW_CALLBACK_URL` | optional audit-platform endpoint, for example `http://audit-platform:8080/api/audit-runs`; when empty, no callback is sent |
+| `REVIEW_CALLBACK_ON` | callback condition: `always`, `blocked`, `pass`, or `never`; default `always` |
+| `REVIEW_CALLBACK_TIMEOUT_SECONDS` | platform request timeout in seconds; default `10` |
+| `REVIEW_PLATFORM_CALLBACK` | optional path to a custom platform callback script |
 
 Comment posting is best-effort: if GitLab notes/discussions cannot be created, the job prints a warning but keeps the original audit result. Critical/High findings still make the job fail and block the merge when successful pipelines are required.
 WeCom notification is also best-effort. It only sends a lightweight summary and links readers back to GitLab for line comments and full reports. The default `fun` style uses group-chat copy like:
@@ -157,6 +162,17 @@ MR：feature/v1.0 -> dev
 ```
 
 For blocked audits, the result is sent as `代码合并失败，审计未通过`.
+
+The audit-platform callback is also best-effort and runs after comments and WeCom notification. Callback failures are logged with a non-zero callback stage status, but the job still exits with the original audit result. Example GitLab CI/CD variables:
+
+```text
+REVIEW_CALLBACK_URL=http://audit-platform:8080/api/audit-runs
+REVIEW_CALLBACK_TOKEN=change-me
+REVIEW_CALLBACK_ON=always
+REVIEW_CALLBACK_TIMEOUT_SECONDS=10
+```
+
+The callback sends the audit result, GitLab/MR context, severity counts, findings, elapsed time, and the generated Markdown report. `AUDIT_PLATFORM_URL` and `AUDIT_PLATFORM_TOKEN` are accepted as compatibility aliases.
 
 To make the review block merging, enable the GitLab project setting that requires successful pipelines before merge.
 

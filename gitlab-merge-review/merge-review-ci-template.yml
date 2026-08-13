@@ -22,6 +22,9 @@ dev_code_review:
     REVIEW_NOTIFY_WECHAT: "false"
     WECHAT_NOTIFY_ON: "always"
     WECHAT_NOTIFY_STYLE: "fun"
+    REVIEW_CALLBACK_URL: ""
+    REVIEW_CALLBACK_ON: "always"
+    REVIEW_CALLBACK_TIMEOUT_SECONDS: "10"
     GIT_STRATEGY: "fetch"
     GIT_DEPTH: "0"
   script:

@@ -130,6 +130,7 @@ DOCX_GENERATOR="${REVIEW_DOCX_GENERATOR:-$APP_ROOT/scripts/generate_review_docx.
 DOCX_TEMPLATE="${REVIEW_DOCX_TEMPLATE:-$APP_ROOT/templates/ai-agent-code-review-template.docx}"
 COMMENT_POSTER="${REVIEW_COMMENT_POSTER:-$SCRIPT_DIR/post_gitlab_review_comments.py}"
 WECHAT_NOTIFIER="${REVIEW_WECHAT_NOTIFIER:-$SCRIPT_DIR/post_wechat_notification.py}"
+PLATFORM_CALLBACK="${REVIEW_PLATFORM_CALLBACK:-$SCRIPT_DIR/post_platform_audit_run.py}"
 mkdir -p "$OUTPUT_DIR"
 
 TARGET_BRANCH="${REVIEW_TARGET_BRANCH:-${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-dev}}"
@@ -143,6 +144,9 @@ NOTIFY_WECHAT="$(lower_value "${REVIEW_NOTIFY_WECHAT:-false}")"
 WECHAT_ON="$(lower_value "${WECHAT_NOTIFY_ON:-always}")"
 WECHAT_STYLE="$(lower_value "${WECHAT_NOTIFY_STYLE:-fun}")"
 WECHAT_MAX_FINDINGS="${WECHAT_NOTIFY_MAX_FINDINGS:-3}"
+CALLBACK_URL="${REVIEW_CALLBACK_URL:-${AUDIT_PLATFORM_URL:-}}"
+CALLBACK_ON="$(lower_value "${REVIEW_CALLBACK_ON:-always}")"
+CALLBACK_TIMEOUT_SECONDS="${REVIEW_CALLBACK_TIMEOUT_SECONDS:-10}"
 REVIEW_ENABLED_VALUE="$(lower_value "${REVIEW_ENABLED:-true}")"
 SCOPE_MODE="$(lower_value "${REVIEW_SCOPE_MODE:-changed}")"
 RULES_MODE="$(lower_value "${REVIEW_RULES_MODE:-append}")"
@@ -196,6 +200,7 @@ config_log "  REVIEW_DOCX_GENERATOR=$DOCX_GENERATOR ($(file_state "$DOCX_GENERAT
 config_log "  REVIEW_DOCX_TEMPLATE=$DOCX_TEMPLATE ($(file_state "$DOCX_TEMPLATE"))"
 config_log "  REVIEW_COMMENT_POSTER=$COMMENT_POSTER ($(file_state "$COMMENT_POSTER"))"
 config_log "  REVIEW_WECHAT_NOTIFIER=$WECHAT_NOTIFIER ($(file_state "$WECHAT_NOTIFIER"))"
+config_log "  REVIEW_PLATFORM_CALLBACK=$PLATFORM_CALLBACK ($(file_state "$PLATFORM_CALLBACK"))"
 config_log "  REVIEW_ENABLED=$REVIEW_ENABLED_VALUE (false disables OCR review and produces a pass report)"
 config_log "  REVIEW_SCOPE_MODE=$SCOPE_MODE (changed=MR diff, full=full repository snapshot, none/disabled=skip OCR review)"
 config_log "  REVIEW_USE_PROJECT_RULES=$USE_PROJECT_RULES (auto loads existing project rules, true tries to load project rules, false skips them)"
@@ -213,6 +218,12 @@ config_log "  WECHAT_WEBHOOK_URL=$(env_secret_state WECHAT_WEBHOOK_URL)"
 config_log "  WECHAT_NOTIFY_ON=$WECHAT_ON"
 config_log "  WECHAT_NOTIFY_STYLE=$WECHAT_STYLE"
 config_log "  WECHAT_NOTIFY_MAX_FINDINGS=$WECHAT_MAX_FINDINGS"
+config_log "  REVIEW_CALLBACK_URL=$(env_value REVIEW_CALLBACK_URL)"
+config_log "  AUDIT_PLATFORM_URL=$(env_value AUDIT_PLATFORM_URL)"
+config_log "  REVIEW_CALLBACK_TOKEN=$(env_secret_state REVIEW_CALLBACK_TOKEN)"
+config_log "  AUDIT_PLATFORM_TOKEN=$(env_secret_state AUDIT_PLATFORM_TOKEN)"
+config_log "  REVIEW_CALLBACK_ON=$CALLBACK_ON"
+config_log "  REVIEW_CALLBACK_TIMEOUT_SECONDS=$CALLBACK_TIMEOUT_SECONDS"
 config_log "  OCR_LLM_URL=$(env_value OCR_LLM_URL)"
 config_log "  OCR_LLM_MODEL=$(env_value OCR_LLM_MODEL)"
 config_log "  OCR_LLM_TOKEN=$(env_secret_state OCR_LLM_TOKEN)"
@@ -542,6 +553,30 @@ else
   [[ -f "$REPORT_PATH" ]] || flow_log "send WeCom notification: skipped because review report is missing"
 fi
 timing_end "${WECHAT_STATUS:-0}"
+
+timing_start "post audit result to platform"
+CALLBACK_DURATION_SECONDS=$(( $(date +%s) - TIMING_TOTAL_START ))
+flow_log "post audit result to platform decision: url=$(if [[ -n "$CALLBACK_URL" ]]; then printf 'configured'; else printf '<empty>'; fi), callback=$(file_state "$PLATFORM_CALLBACK"), report=$(file_state "$REPORT_PATH"), markdown=$(file_state "$REPORT_MD"), callback_on=$CALLBACK_ON, timeout=${CALLBACK_TIMEOUT_SECONDS}s"
+if [[ -n "$CALLBACK_URL" && -f "$PLATFORM_CALLBACK" && -f "$REPORT_PATH" ]]; then
+  flow_log "post audit result to platform: running"
+  set +e
+  REVIEW_EVAL_STATUS="$EVAL_STATUS" \
+  REVIEW_DURATION_SECONDS="$CALLBACK_DURATION_SECONDS" \
+  python3 "$PLATFORM_CALLBACK" \
+    --report "$REPORT_PATH" \
+    --output-dir "$OUTPUT_DIR" \
+    --markdown "$REPORT_MD"
+  CALLBACK_STATUS=$?
+  set -e
+  if [[ "$CALLBACK_STATUS" -ne 0 ]]; then
+    echo "Audit platform callback failed with exit code $CALLBACK_STATUS; continuing without changing review result" >&2
+  fi
+else
+  [[ -n "$CALLBACK_URL" ]] || flow_log "post audit result to platform: skipped because REVIEW_CALLBACK_URL/AUDIT_PLATFORM_URL is empty"
+  [[ -f "$PLATFORM_CALLBACK" ]] || flow_log "post audit result to platform: skipped because REVIEW_PLATFORM_CALLBACK is missing"
+  [[ -f "$REPORT_PATH" ]] || flow_log "post audit result to platform: skipped because review report is missing"
+fi
+timing_end "${CALLBACK_STATUS:-0}"
 
 timing_total_end "$EVAL_STATUS"
 exit "$EVAL_STATUS"
